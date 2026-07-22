@@ -15,11 +15,44 @@
     <ul class="comment-list">
       @for (comment of comments(); track comment.id) {
         <li class="comment">
-          <div class="comment-header">
-            <span class="comment-author">{{ comment.authorDisplayName }}</span>
-            <span class="comment-date">{{ formatTimestamp(comment.createdAt) }}</span>
-          </div>
-          <p class="comment-body">{{ comment.body }}</p>
+          @if (editingCommentId() === comment.id) {
+            <form class="comment-edit-form" [formGroup]="editForm" (ngSubmit)="saveEdit(comment)">
+              <mat-form-field appearance="outline" class="full-width">
+                <mat-label>Testo del messaggio</mat-label>
+                <textarea matInput formControlName="body" rows="2"></textarea>
+              </mat-form-field>
+              @if (editErrorMessage) {
+                <p class="form-error">{{ editErrorMessage }}</p>
+              }
+              <div class="comment-edit-actions">
+                <button type="button" mat-button (click)="cancelEdit()">Annulla</button>
+                <button type="submit" mat-flat-button>Salva</button>
+              </div>
+            </form>
+          } @else {
+            <div class="comment-header">
+              <span class="comment-author">{{ comment.authorDisplayName }}</span>
+              <span class="comment-date">
+                {{ formatTimestamp(comment.createdAt) }}
+                @if (comment.editedAt) {
+                  <span class="comment-edited">(modificato)</span>
+                }
+              </span>
+              <span class="comment-actions">
+                @if (comment.canEdit) {
+                  <button mat-icon-button aria-label="Modifica messaggio" (click)="startEdit(comment)">
+                    <mat-icon aria-hidden="true">edit</mat-icon>
+                  </button>
+                }
+                @if (comment.canDelete) {
+                  <button mat-icon-button aria-label="Elimina messaggio" (click)="confirmDelete(comment)">
+                    <mat-icon aria-hidden="true">delete</mat-icon>
+                  </button>
+                }
+              </span>
+            </div>
+            <p class="comment-body">{{ comment.body }}</p>
+          }
         </li>
       }
     </ul>

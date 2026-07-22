@@ -36,10 +36,44 @@
 
 .comment-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   font: var(--mat-sys-label-medium);
   color: var(--mat-sys-on-surface-variant);
+}
+
+.comment-edited {
+  font-style: italic;
+  margin-left: 0.25rem;
+}
+
+.comment-actions {
+  display: flex;
+  margin-left: auto;
+
+  button {
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+
+    mat-icon {
+      font-size: 1.125rem;
+      width: 1.125rem;
+      height: 1.125rem;
+    }
+  }
+}
+
+.comment-edit-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.comment-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .comment-body {

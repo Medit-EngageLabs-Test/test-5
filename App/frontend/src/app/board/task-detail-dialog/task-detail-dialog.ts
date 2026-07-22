@@ -7,12 +7,14 @@ import {
   MatDialogContent,
   MatDialogTitle,
 } from '@angular/material/dialog';
-import { MatButton } from '@angular/material/button';
+import { MatButton, MatIconButton } from '@angular/material/button';
 import { MatFormField, MatLabel } from '@angular/material/form-field';
 import { MatInput } from '@angular/material/input';
+import { MatIcon } from '@angular/material/icon';
 import { CommentsService } from '../comments';
 import { Comment } from '../comment.model';
 import { Task } from '../task.model';
+import { ConfirmDialogService } from '../../shared/confirm-dialog/confirm-dialog.service';
 
 /** Data the detail panel is opened with: the Task whose conversation it shows (ticket #18). */
 export type TaskDetailDialogData = { task: Task };
@@ -25,7 +27,8 @@ function notBlankValidator(control: AbstractControl<string>): ValidationErrors |
 /**
  * Material detail panel opened from a Task card (ticket #18): shows the Task's conversation —
  * a flat, chronological list of Comments with author and date (CONTEXT.md "Commento") — and a
- * send box to write a new one.
+ * send box to write a new one. Edit/delete actions (ticket #19) are visible per Comment
+ * according to the server-computed `canEdit`/`canDelete` flags.
  */
 @Component({
   selector: 'app-task-detail-dialog',
@@ -39,6 +42,8 @@ function notBlankValidator(control: AbstractControl<string>): ValidationErrors |
     MatLabel,
     MatInput,
     MatButton,
+    MatIconButton,
+    MatIcon,
   ],
   templateUrl: './task-detail-dialog.html',
   styleUrl: './task-detail-dialog.scss',
@@ -46,6 +51,7 @@ function notBlankValidator(control: AbstractControl<string>): ValidationErrors |
 })
 export class TaskDetailDialog {
   private readonly commentsService = inject(CommentsService);
+  private readonly confirmDialog = inject(ConfirmDialogService);
   protected readonly data = inject<TaskDetailDialogData>(MAT_DIALOG_DATA);
 
   protected readonly task = this.data.task;
@@ -58,6 +64,13 @@ export class TaskDetailDialog {
 
   protected sending = false;
   protected errorMessage: string | null = null;
+
+  // Id of the Comment currently in inline edit mode, or null when none is (ticket #19).
+  protected readonly editingCommentId = signal<string | null>(null);
+  protected readonly editForm = inject(FormBuilder).nonNullable.group({
+    body: ['', notBlankValidator],
+  });
+  protected editErrorMessage: string | null = null;
 
   constructor() {
     this.refresh();
@@ -104,6 +117,58 @@ export class TaskDetailDialog {
       error: () => {
         this.sending = false;
         this.errorMessage = 'Impossibile inviare il messaggio. Riprova.';
+      },
+    });
+  }
+
+  /** Enters inline edit mode for a Comment (ticket #19) — only ever invoked when `canEdit`. */
+  protected startEdit(comment: Comment): void {
+    this.editErrorMessage = null;
+    this.editingCommentId.set(comment.id);
+    this.editForm.setValue({ body: comment.body });
+  }
+
+  protected cancelEdit(): void {
+    this.editingCommentId.set(null);
+  }
+
+  /** Saves an inline edit (ticket #19): sets EditedAt server-side — "(modificato)" follows from it. */
+  protected saveEdit(comment: Comment): void {
+    if (this.editForm.invalid) {
+      this.editForm.markAllAsTouched();
+      return;
+    }
+
+    const body = this.editForm.getRawValue().body.trim();
+    this.commentsService.update(comment.id, { body }).subscribe({
+      next: () => {
+        this.editingCommentId.set(null);
+        this.refresh();
+      },
+      error: () => {
+        this.editErrorMessage = 'Impossibile modificare il messaggio. Riprova.';
+      },
+    });
+  }
+
+  /**
+   * Confirms then deletes a Comment (ticket #19) — the delete command itself is only ever
+   * rendered when `comment.canDelete` (author or Board Moderator). commentCount on the Board
+   * card refreshes once this panel closes (Board.openDetailDialog's afterClosed).
+   */
+  protected async confirmDelete(comment: Comment): Promise<void> {
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Eliminare questo messaggio?',
+      message: 'Il messaggio sarà eliminato definitivamente.',
+      confirmLabel: 'Elimina',
+      danger: true,
+    });
+    if (!confirmed) return;
+
+    this.commentsService.remove(comment.id).subscribe({
+      next: () => this.refresh(),
+      error: () => {
+        this.errorMessage = 'Impossibile eliminare il messaggio. Riprova.';
       },
     });
   }

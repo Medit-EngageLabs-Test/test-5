@@ -10,8 +10,8 @@ namespace App.Tests;
 
 /// <summary>
 /// Covers <c>GET/POST /api/tasks/{taskId}/comments</c> (ticket #18): chronological listing and
-/// author attribution. <c>PUT/DELETE /api/comments/{id}</c> permissions are ticket #19's own
-/// concern — see <see cref="CommentPermissionTests"/> once that lands.
+/// author attribution; and <c>PUT/DELETE /api/comments/{id}</c> (ticket #19): author-only edit,
+/// author-or-Moderator delete.
 /// </summary>
 public class CommentsEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFixture<RoleAuthenticatedAppFactory>
 {
@@ -143,6 +143,9 @@ public class CommentsEndpointTests(RoleAuthenticatedAppFactory factory) : IClass
         Assert.Equal(taskId, comment.GetProperty("taskId").GetGuid());
         Assert.NotEqual(Guid.Empty, comment.GetProperty("authorId").GetGuid());
         Assert.Null(comment.GetProperty("editedAt").GetString());
+        // The author can always edit/delete their own just-written Comment (ticket #19).
+        Assert.True(comment.GetProperty("canEdit").GetBoolean());
+        Assert.True(comment.GetProperty("canDelete").GetBoolean());
     }
 
     [Theory]
@@ -202,5 +205,180 @@ public class CommentsEndpointTests(RoleAuthenticatedAppFactory factory) : IClass
         var tasks = await response.Content.ReadFromJsonAsync<JsonElement[]>(JsonOptions);
         var task = Assert.Single(tasks!, t => t.GetProperty("id").GetGuid() == taskId);
         Assert.Equal(0, task.GetProperty("commentCount").GetInt32());
+    }
+
+    // ── ListComments: canEdit/canDelete (ticket #19) ────────────────────────────
+
+    [Fact]
+    public async Task ListComments_CanEditAndCanDelete_AreTrue_ForOwnComment_ButFalse_ForOthers()
+    {
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(creatorId, $"Con conversazione {Guid.NewGuid()}");
+        var now = DateTime.UtcNow;
+        // The caller resolves to the open-mode synthetic User: create THIS Comment through the
+        // API — instead of seeding it with a random author — so this caller is its real author.
+        var callerClient = CreateAuthenticatedClientWithoutRoles();
+        var ownCommentResponse = await callerClient.PostAsJsonAsync(
+            $"/api/tasks/{taskId}/comments", new { body = $"Mio messaggio {Guid.NewGuid()}" });
+        var ownCommentId = (await ownCommentResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions))
+            .GetProperty("id").GetGuid();
+        var othersCommentId = await SeedCommentAsync(taskId, creatorId, "Di un altro Utente", now);
+
+        var response = await callerClient.GetAsync($"/api/tasks/{taskId}/comments");
+
+        var comments = await response.Content.ReadFromJsonAsync<JsonElement[]>(JsonOptions);
+        var own = Assert.Single(comments!, c => c.GetProperty("id").GetGuid() == ownCommentId);
+        var others = Assert.Single(comments!, c => c.GetProperty("id").GetGuid() == othersCommentId);
+        Assert.True(own.GetProperty("canEdit").GetBoolean());
+        Assert.True(own.GetProperty("canDelete").GetBoolean());
+        Assert.False(others.GetProperty("canEdit").GetBoolean());
+        Assert.False(others.GetProperty("canDelete").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ListComments_CanDeleteIsTrue_ForModerator_EvenWhenNotAuthor()
+    {
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(creatorId, $"Con conversazione {Guid.NewGuid()}");
+        var commentId = await SeedCommentAsync(taskId, creatorId, $"Di un altro Utente {Guid.NewGuid()}", DateTime.UtcNow);
+        var client = CreateAuthenticatedClient(); // carries AppRoles.BoardModerator
+
+        var response = await client.GetAsync($"/api/tasks/{taskId}/comments");
+
+        var comments = await response.Content.ReadFromJsonAsync<JsonElement[]>(JsonOptions);
+        var comment = Assert.Single(comments!, c => c.GetProperty("id").GetGuid() == commentId);
+        // Moderator can delete any Comment, but editing stays author-only — no override.
+        Assert.False(comment.GetProperty("canEdit").GetBoolean());
+        Assert.True(comment.GetProperty("canDelete").GetBoolean());
+    }
+
+    // ── #19 — PUT /api/comments/{id}: solo l'autore ─────────────────────────────
+
+    [Fact]
+    public async Task UpdateComment_ByItsAuthor_SetsBodyAndEditedAt()
+    {
+        var taskId = await SeedTaskAsync(await SeedUserAsync(), $"Attività {Guid.NewGuid()}");
+        var authorClient = CreateAuthenticatedClientWithoutRoles();
+        var createResponse = await authorClient.PostAsJsonAsync(
+            $"/api/tasks/{taskId}/comments", new { body = "Testo originale" });
+        var commentId = (await createResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions))
+            .GetProperty("id").GetGuid();
+        var newBody = $"Testo corretto {Guid.NewGuid()}";
+
+        var response = await authorClient.PutAsJsonAsync($"/api/comments/{commentId}", new { body = newBody });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var comment = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        Assert.Equal(newBody, comment.GetProperty("body").GetString());
+        Assert.NotNull(comment.GetProperty("editedAt").GetString());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task UpdateComment_WithBlankBody_Returns400(string blankBody)
+    {
+        var userId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(userId, $"Attività {Guid.NewGuid()}");
+        var commentId = await SeedCommentAsync(taskId, userId, "Testo", DateTime.UtcNow);
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.PutAsJsonAsync($"/api/comments/{commentId}", new { body = blankBody });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateComment_ByOtherAuthenticatedUser_Returns403()
+    {
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(creatorId, $"Attività {Guid.NewGuid()}");
+        var commentId = await SeedCommentAsync(taskId, creatorId, "Non modificabile da altri", DateTime.UtcNow);
+        // Resolves to the synthetic User, not creatorId — not the Comment's author.
+        var client = CreateAuthenticatedClientWithoutRoles();
+
+        var response = await client.PutAsJsonAsync($"/api/comments/{commentId}", new { body = "Tentativo" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateComment_ByModerator_WhoIsNotAuthor_Returns403()
+    {
+        // Ticket #19: editing is author-only — no Moderator override, unlike DeleteComment.
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(creatorId, $"Attività {Guid.NewGuid()}");
+        var commentId = await SeedCommentAsync(taskId, creatorId, "Non modificabile dal Moderatore", DateTime.UtcNow);
+        var client = CreateAuthenticatedClient(); // carries AppRoles.BoardModerator, not the author
+
+        var response = await client.PutAsJsonAsync($"/api/comments/{commentId}", new { body = "Tentativo" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateComment_UnknownId_Returns404()
+    {
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.PutAsJsonAsync($"/api/comments/{Guid.NewGuid()}", new { body = "Non esiste" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    // ── #19 — DELETE /api/comments/{id}: autore o Moderatore ────────────────────
+
+    [Fact]
+    public async Task DeleteComment_ByItsAuthor_Returns204()
+    {
+        var taskId = await SeedTaskAsync(await SeedUserAsync(), $"Attività {Guid.NewGuid()}");
+        var authorClient = CreateAuthenticatedClientWithoutRoles();
+        var createResponse = await authorClient.PostAsJsonAsync(
+            $"/api/tasks/{taskId}/comments", new { body = $"Mio messaggio {Guid.NewGuid()}" });
+        var commentId = (await createResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions))
+            .GetProperty("id").GetGuid();
+
+        var response = await authorClient.DeleteAsync($"/api/comments/{commentId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteComment_ByModerator_Returns204_EvenWhenNotAuthor()
+    {
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(creatorId, $"Attività {Guid.NewGuid()}");
+        var commentId = await SeedCommentAsync(
+            taskId, creatorId, $"Di un altro Utente {Guid.NewGuid()}", DateTime.UtcNow);
+        var client = CreateAuthenticatedClient(); // carries AppRoles.BoardModerator
+
+        var response = await client.DeleteAsync($"/api/comments/{commentId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteComment_ByOtherAuthenticatedUser_Returns403()
+    {
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(creatorId, $"Attività {Guid.NewGuid()}");
+        var commentId = await SeedCommentAsync(
+            taskId, creatorId, $"Non eliminabile da altri {Guid.NewGuid()}", DateTime.UtcNow);
+        // Resolves to the synthetic User, not creatorId, and carries no BoardModerator role.
+        var client = CreateAuthenticatedClientWithoutRoles();
+
+        var response = await client.DeleteAsync($"/api/comments/{commentId}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteComment_UnknownId_Returns404()
+    {
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.DeleteAsync($"/api/comments/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 }
