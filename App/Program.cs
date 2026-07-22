@@ -3,6 +3,7 @@ using Amazon.S3;
 using App;
 using App.Board;
 using App.Platform;
+using App.Realtime;
 using App.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -50,6 +51,11 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 // ── Board ─────────────────────────────────────────────────────────────────────
 builder.Services.AddScoped<IUserProvisioningService, UserProvisioningService>();
+
+// ── Real-time (F6, ticket #23 — ADR-0001) ──────────────────────────────────────
+// Registers IHubContext<BoardHub, IBoardClient> for the Board endpoints to broadcast through,
+// and the services BoardHub itself needs. No backplane: single instance (ADR-0001).
+builder.Services.AddSignalR();
 
 // ── Storage (S3-compatible bucket, storage capability) ────────────────────────
 // The six Storage__* variables have no fallback (portal contract): a missing one
@@ -99,6 +105,11 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
 app.MapTasks();
 app.MapComments();
 app.MapAttachments();
+
+// Real-time Board hub (F6, ticket #23). Mapped under /api — not platform wiring, added after it
+// without modifying it — so it inherits the exact same gating every other /api endpoint gets from
+// the platform's authenticated FallbackPolicy/open-mode absence of one (see BoardHub's own doc).
+app.MapHub<BoardHub>("/api/hubs/board");
 
 // Serve Angular SPA for all unmatched routes
 app.MapFallbackToFile("index.html");

@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using App.Realtime;
 using App.Storage;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace App.Board;
@@ -115,6 +117,7 @@ public static class TasksEndpoints
         CreateTaskRequest request,
         AppDbContext db,
         IUserProvisioningService userProvisioning,
+        IHubContext<BoardHub, IBoardClient> hub,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
     {
@@ -137,6 +140,10 @@ public static class TasksEndpoints
         await db.SaveChangesAsync();
 
         _taskCreated(logger, task.Id, null);
+        // F6 (ticket #23): broadcast after the save commits, never before — every connected
+        // client (including this one) re-fetches through GET /api/tasks, which recomputes
+        // canDelete/counts per viewer (see BoardHub's own doc).
+        await hub.Clients.All.TaskCreated(task.Id);
         // The creator can always delete their own just-created Task — no need to re-resolve
         // the moderator/creator check that ListTasks/UpdateTask perform for arbitrary Tasks.
         // A brand-new Task has no Comments/Attachments yet — no need to query for counts of zero.
@@ -154,6 +161,7 @@ public static class TasksEndpoints
         UpdateTaskRequest request,
         AppDbContext db,
         IUserProvisioningService userProvisioning,
+        IHubContext<BoardHub, IBoardClient> hub,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
     {
@@ -180,6 +188,8 @@ public static class TasksEndpoints
         var attachmentCount = await db.Attachments.CountAsync(a => a.TaskId == task.Id);
 
         _taskUpdated(logger, task.Id, null);
+        // F6 (ticket #23): see CreateTask's comment on why this carries only the id.
+        await hub.Clients.All.TaskUpdated(task.Id);
         return Results.Ok(TaskResponse.From(task, canDelete, commentCount, attachmentCount));
     }
 
@@ -192,6 +202,7 @@ public static class TasksEndpoints
         UpdateTaskStatusRequest request,
         AppDbContext db,
         IUserProvisioningService userProvisioning,
+        IHubContext<BoardHub, IBoardClient> hub,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
     {
@@ -211,6 +222,8 @@ public static class TasksEndpoints
         var attachmentCount = await db.Attachments.CountAsync(a => a.TaskId == task.Id);
 
         _taskStatusChanged(logger, task.Id, task.Status, null);
+        // F6 (ticket #23): see CreateTask's comment on why this carries only the id.
+        await hub.Clients.All.TaskMoved(task.Id);
         return Results.Ok(TaskResponse.From(task, canDelete, commentCount, attachmentCount));
     }
 
@@ -234,6 +247,7 @@ public static class TasksEndpoints
         AppDbContext db,
         IObjectStore objectStore,
         IUserProvisioningService userProvisioning,
+        IHubContext<BoardHub, IBoardClient> hub,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
     {
@@ -260,6 +274,9 @@ public static class TasksEndpoints
         await db.SaveChangesAsync();
 
         _taskDeleted(logger, task.Id, null);
+        // F6 (ticket #23): see CreateTask's comment on why this carries only the id — the Task
+        // (and its Comments/Attachments, cascaded at the row level) is gone by now regardless.
+        await hub.Clients.All.TaskDeleted(task.Id);
         return Results.NoContent();
     }
 }

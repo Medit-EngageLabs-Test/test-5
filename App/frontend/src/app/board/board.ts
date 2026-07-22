@@ -1,4 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { merge } from 'rxjs';
 import { CdkDrag, CdkDragDrop, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { MatButton, MatFabButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
@@ -10,6 +12,7 @@ import { TaskCard } from './task-card/task-card';
 import { TaskFormDialog, TaskFormDialogData } from './task-form-dialog/task-form-dialog';
 import { TaskDetailDialog, TaskDetailDialogData } from './task-detail-dialog/task-detail-dialog';
 import { ConfirmDialogService } from '../shared/confirm-dialog/confirm-dialog.service';
+import { BoardRealtimeService } from '../realtime/board-realtime';
 
 interface ColumnConfig {
   status: TaskStatus;
@@ -46,6 +49,7 @@ export class Board {
   readonly #dialog = inject(MatDialog);
   readonly #snackBar = inject(MatSnackBar);
   readonly #confirmDialog = inject(ConfirmDialogService);
+  readonly #realtime = inject(BoardRealtimeService);
 
   protected readonly columns = COLUMNS;
 
@@ -56,9 +60,23 @@ export class Board {
   // How many Done Tasks are currently visible — "mostra altre" grows it by DONE_PAGE_SIZE.
   protected readonly doneVisibleCount = signal(DONE_PAGE_SIZE);
 
-  /** Loads the Board's Tasks on construction. */
+  /**
+   * Loads the Board's Tasks on construction, then keeps it live (F6, ticket #23): every Task
+   * event from another client, and every hub (re)connection (ADR-0001's reconnection
+   * realignment), triggers the same refresh() a local mutation already does.
+   */
   constructor() {
     this.refresh();
+
+    merge(
+      this.#realtime.taskCreated$,
+      this.#realtime.taskUpdated$,
+      this.#realtime.taskMoved$,
+      this.#realtime.taskDeleted$,
+      this.#realtime.realigned$,
+    )
+      .pipe(takeUntilDestroyed())
+      .subscribe(() => this.refresh());
   }
 
   /**

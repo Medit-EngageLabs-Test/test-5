@@ -1,9 +1,24 @@
 import { TestBed } from '@angular/core/testing';
 import { CdkDragDrop } from '@angular/cdk/drag-drop';
-import { of } from 'rxjs';
+import { of, Subject } from 'rxjs';
 import { Board } from './board';
 import { TasksService } from './tasks';
 import { Task, TaskStatus } from './task.model';
+import { BoardRealtimeService, TaskRealtimeEvent } from '../realtime/board-realtime';
+
+/**
+ * A fake BoardRealtimeService (F6): every stream is its own Subject a test can push into,
+ * instead of the real service's hub connection attempting a network call in a unit test.
+ */
+function makeFakeRealtimeService() {
+  return {
+    taskCreated$: new Subject<TaskRealtimeEvent>(),
+    taskUpdated$: new Subject<TaskRealtimeEvent>(),
+    taskMoved$: new Subject<TaskRealtimeEvent>(),
+    taskDeleted$: new Subject<TaskRealtimeEvent>(),
+    realigned$: new Subject<void>(),
+  };
+}
 
 /**
  * Reaches Board's protected onDrop() — bracket notation is TypeScript's documented escape
@@ -40,10 +55,14 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
 
 async function setup(tasks: Task[], tasksServiceOverrides: Record<string, unknown> = {}) {
   const tasksService = { list: vi.fn().mockReturnValue(of(tasks)), ...tasksServiceOverrides };
+  const realtimeService = makeFakeRealtimeService();
 
   await TestBed.configureTestingModule({
     imports: [Board],
-    providers: [{ provide: TasksService, useValue: tasksService }],
+    providers: [
+      { provide: TasksService, useValue: tasksService },
+      { provide: BoardRealtimeService, useValue: realtimeService },
+    ],
   }).compileComponents();
 
   const fixture = TestBed.createComponent(Board);
@@ -54,7 +73,7 @@ async function setup(tasks: Task[], tasksServiceOverrides: Record<string, unknow
   const column = (label: string) =>
     element.querySelector(`.board-column[aria-label="${label}"]`) as HTMLElement;
 
-  return { fixture, element, column, tasksService };
+  return { fixture, element, column, tasksService, realtimeService };
 }
 
 describe('Board', () => {
@@ -178,5 +197,32 @@ describe('Board', () => {
     );
 
     expect(updateStatus).not.toHaveBeenCalled();
+  });
+
+  // ── F6 — Aggiornamenti in tempo reale (ticket #23) ─────────────────────────────
+
+  it('un evento taskCreated$ da un altro client ricarica la board', async () => {
+    const { tasksService, realtimeService } = await setup([]);
+    expect(tasksService.list).toHaveBeenCalledTimes(1); // initial load only
+
+    realtimeService.taskCreated$.next({ taskId: 'from-another-client' });
+
+    expect(tasksService.list).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['taskUpdated$', { taskId: 't-1' }] as const,
+    ['taskMoved$', { taskId: 't-1' }] as const,
+    ['taskDeleted$', { taskId: 't-1' }] as const,
+    ['realigned$', undefined] as const,
+  ])('un evento %s ricarica la board', async (stream, payload) => {
+    const { tasksService, realtimeService } = await setup([]);
+    expect(tasksService.list).toHaveBeenCalledTimes(1);
+
+    (
+      realtimeService[stream as keyof typeof realtimeService] as { next: (value: unknown) => void }
+    ).next(payload);
+
+    expect(tasksService.list).toHaveBeenCalledTimes(2);
   });
 });
