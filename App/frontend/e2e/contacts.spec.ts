@@ -29,8 +29,8 @@ async function createContact(
 
 test.describe('Rubrica Aziendale', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    // The default route redirects to /contacts
+    // The default route now redirects to /board (ticket #10) — navigate here directly.
+    await page.goto('/contacts');
     await expect(page).toHaveURL('/contacts');
   });
 

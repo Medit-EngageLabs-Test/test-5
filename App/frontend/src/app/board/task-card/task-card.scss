@@ -1,0 +1,70 @@
+.task-card {
+  margin-bottom: 0.75rem;
+}
+
+.task-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.task-title {
+  font: var(--mat-sys-title-medium);
+  overflow-wrap: anywhere;
+}
+
+.urgency-badge {
+  flex-shrink: 0;
+  padding: 0.125rem 0.625rem;
+  border-radius: 1rem;
+  font: var(--mat-sys-label-small);
+  white-space: nowrap;
+}
+
+// Container/on-container token pairs (Material 3): each urgency level gets its
+// own semantic color role instead of a hardcoded hue.
+.urgency-low {
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+}
+
+.urgency-medium {
+  background: var(--mat-sys-tertiary-container);
+  color: var(--mat-sys-on-tertiary-container);
+}
+
+.urgency-high {
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+}
+
+.due-date {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+
+  mat-icon {
+    font-size: 1rem;
+    width: 1rem;
+    height: 1rem;
+  }
+
+  &.overdue {
+    color: var(--mat-sys-error);
+  }
+}
+
+.task-card-footer {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.counter {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}

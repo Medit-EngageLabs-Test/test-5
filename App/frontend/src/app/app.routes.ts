@@ -8,7 +8,11 @@ export const routes: Routes = [
     // senza doversene ricordare, invece di ripetere canActivate su ognuna.
     canActivateChild: [authGuard],
     children: [
-      { path: '', redirectTo: 'contacts', pathMatch: 'full' },
+      { path: '', redirectTo: 'board', pathMatch: 'full' },
+      {
+        path: 'board',
+        loadComponent: () => import('./board/board').then((m) => m.Board),
+      },
       {
         path: 'contacts',
         loadComponent: () =>

@@ -1,0 +1,23 @@
+<header class="page-header">
+  <h1>Board</h1>
+</header>
+
+<div class="board-columns">
+  @for (column of columns; track column.status) {
+    <section class="board-column" [attr.aria-label]="column.label">
+      <h2 class="column-header">{{ column.label }}</h2>
+
+      @if (tasksFor(column.status).length === 0) {
+        <p class="empty-state">Nessuna Attività qui.</p>
+      } @else {
+        @for (task of tasksFor(column.status); track task.id) {
+          <app-task-card [task]="task" />
+        }
+      }
+
+      @if (column.status === 'Done' && hasMoreDone()) {
+        <button mat-button class="show-more" (click)="showMoreDone()">Mostra altre</button>
+      }
+    </section>
+  }
+</div>
