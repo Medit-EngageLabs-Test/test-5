@@ -71,6 +71,8 @@ builder.Services.AddSingleton<IAmazonS3>(serviceProvider =>
     return new AmazonS3Client(options.AccessKey, options.SecretKey, config);
 });
 
+builder.Services.AddSingleton<IObjectStore, S3ObjectStore>();
+
 // ── Authentication (IntelliFlow platform code — do not modify) ────────────────
 // BFF session cookie + OIDC code flow, active when IntelliFlow injects the OIDC
 // environment contract — see .intelliflow/portal-contracts/core.md.
