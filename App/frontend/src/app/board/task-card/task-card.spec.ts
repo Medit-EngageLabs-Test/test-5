@@ -13,6 +13,7 @@ const baseTask: Task = {
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
   canDelete: true,
+  commentCount: 0,
 };
 
 async function setup(task: Task) {
@@ -60,11 +61,16 @@ describe('TaskCard', () => {
     expect(element.querySelector('.due-date.overdue')).toBeNull();
   });
 
-  it('mostra i contatori commenti/allegati a zero (F1)', async () => {
+  it('mostra il contatore Allegati a zero (non ancora implementato)', async () => {
     const { element } = await setup(baseTask);
 
-    expect(element.querySelector('[aria-label="Commenti"]')?.textContent).toContain('0');
     expect(element.querySelector('[aria-label="Allegati"]')?.textContent).toContain('0');
+  });
+
+  it('mostra il contatore Commenti dal task (ticket #18)', async () => {
+    const { element } = await setup({ ...baseTask, commentCount: 3 });
+
+    expect(element.querySelector('[aria-label="Commenti"]')?.textContent).toContain('3');
   });
 
   it('il comando modifica è sempre visibile ed emette editRequested', async () => {
@@ -97,5 +103,25 @@ describe('TaskCard', () => {
     const { element } = await setup({ ...baseTask, canDelete: false });
 
     expect(element.querySelector('[aria-label="Elimina Attività"]')).toBeNull();
+  });
+
+  it('il click sulla card emette detailsRequested (ticket #18)', async () => {
+    const { fixture, element } = await setup(baseTask);
+    const detailsEmitted = vi.fn();
+    fixture.componentInstance.detailsRequested.subscribe(detailsEmitted);
+
+    element.querySelector<HTMLElement>('.task-card')!.click();
+
+    expect(detailsEmitted).toHaveBeenCalledTimes(1);
+  });
+
+  it('il click sul comando modifica non emette anche detailsRequested', async () => {
+    const { fixture, element } = await setup(baseTask);
+    const detailsEmitted = vi.fn();
+    fixture.componentInstance.detailsRequested.subscribe(detailsEmitted);
+
+    element.querySelector<HTMLButtonElement>('[aria-label="Modifica Attività"]')!.click();
+
+    expect(detailsEmitted).not.toHaveBeenCalled();
   });
 });

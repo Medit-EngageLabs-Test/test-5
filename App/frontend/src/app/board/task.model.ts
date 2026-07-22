@@ -26,6 +26,8 @@ export interface Task {
    * command.
    */
   canDelete: boolean;
+  /** How many Comments this Task's conversation has (ticket #18) — the 💬 badge on the card. */
+  commentCount: number;
 }
 
 /** Body of `POST /api/tasks` (ticket #14): only `title` is required. */

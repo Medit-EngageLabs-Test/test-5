@@ -1,0 +1,43 @@
+<h2 mat-dialog-title>{{ task.title }}</h2>
+
+<mat-dialog-content class="task-detail-content">
+  @if (task.description) {
+    <p class="task-description">{{ task.description }}</p>
+  }
+
+  <h3 class="conversation-heading">Conversazione</h3>
+
+  @if (loading()) {
+    <p class="empty-state">Caricamento…</p>
+  } @else if (comments().length === 0) {
+    <p class="empty-state">Nessun messaggio ancora. Scrivi il primo.</p>
+  } @else {
+    <ul class="comment-list">
+      @for (comment of comments(); track comment.id) {
+        <li class="comment">
+          <div class="comment-header">
+            <span class="comment-author">{{ comment.authorDisplayName }}</span>
+            <span class="comment-date">{{ formatTimestamp(comment.createdAt) }}</span>
+          </div>
+          <p class="comment-body">{{ comment.body }}</p>
+        </li>
+      }
+    </ul>
+  }
+</mat-dialog-content>
+
+<form class="send-box" [formGroup]="form" (ngSubmit)="submit()">
+  <mat-form-field appearance="outline" class="full-width">
+    <mat-label>Scrivi un messaggio</mat-label>
+    <textarea matInput formControlName="body" rows="2"></textarea>
+  </mat-form-field>
+
+  @if (errorMessage) {
+    <p class="form-error">{{ errorMessage }}</p>
+  }
+
+  <mat-dialog-actions align="end">
+    <button type="button" mat-button mat-dialog-close>Chiudi</button>
+    <button type="submit" mat-flat-button [disabled]="sending">Invia</button>
+  </mat-dialog-actions>
+</form>

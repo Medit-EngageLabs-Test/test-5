@@ -1,4 +1,13 @@
-<mat-card appearance="outlined" class="task-card">
+<mat-card
+  appearance="outlined"
+  class="task-card"
+  tabindex="0"
+  role="button"
+  aria-label="Apri dettaglio Attività"
+  (click)="onCardClick()"
+  (keydown.enter)="onCardClick()"
+  (keydown.space)="onCardClick(); $event.preventDefault()"
+>
   <mat-card-content>
     <div class="task-card-header">
       <h3 class="task-title">{{ task().title }}</h3>
@@ -13,7 +22,7 @@
     }
 
     <div class="task-card-footer">
-      <span class="counter" aria-label="Commenti">💬 {{ commentCount }}</span>
+      <span class="counter" aria-label="Commenti">💬 {{ commentCount() }}</span>
       <span class="counter" aria-label="Allegati">📎 {{ attachmentCount }}</span>
       <span class="task-card-actions">
         <button mat-icon-button aria-label="Modifica Attività" (click)="onEditClick($event)">

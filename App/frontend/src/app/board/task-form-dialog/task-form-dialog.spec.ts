@@ -16,6 +16,7 @@ const existingTask: Task = {
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
   canDelete: true,
+  commentCount: 0,
 };
 
 async function setup(data: TaskFormDialogData, tasksServiceOverrides: Partial<TasksService> = {}) {

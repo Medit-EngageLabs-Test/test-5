@@ -8,6 +8,7 @@ import { TasksService } from './tasks';
 import { Task, TaskStatus } from './task.model';
 import { TaskCard } from './task-card/task-card';
 import { TaskFormDialog, TaskFormDialogData } from './task-form-dialog/task-form-dialog';
+import { TaskDetailDialog, TaskDetailDialogData } from './task-detail-dialog/task-detail-dialog';
 import { ConfirmDialogService } from '../shared/confirm-dialog/confirm-dialog.service';
 
 interface ColumnConfig {
@@ -115,6 +116,20 @@ export class Board {
       this.refresh();
       this.#snackBar.open(successMessage, 'Chiudi', { duration: SNACK_BAR_DURATION_MS });
     });
+  }
+
+  /**
+   * Opens the detail panel (ticket #18): Task description plus its Comments conversation.
+   * Refreshes on close — a message written or deleted inside it changes `commentCount`, the
+   * card's 💬 badge, even though the card itself sits hidden behind the panel meanwhile.
+   */
+  protected openDetailDialog(task: Task): void {
+    const dialogRef = this.#dialog.open<TaskDetailDialog, TaskDetailDialogData>(TaskDetailDialog, {
+      data: { task },
+      width: '560px',
+    });
+
+    dialogRef.afterClosed().subscribe(() => this.refresh());
   }
 
   /**

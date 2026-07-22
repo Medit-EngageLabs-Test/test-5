@@ -29,6 +29,9 @@ export class TaskCard {
   /** Emitted when the delete command is activated — only rendered when `task().canDelete` (ticket #17). */
   readonly deleteRequested = output<void>();
 
+  /** Emitted when the card itself is activated (click or keyboard) — opens the detail panel (ticket #18). */
+  readonly detailsRequested = output<void>();
+
   protected readonly urgencyLabel = computed(() => URGENCY_LABELS[this.task().urgency]);
 
   protected readonly urgencyClass = computed(() => `urgency-${this.task().urgency.toLowerCase()}`);
@@ -51,13 +54,14 @@ export class TaskCard {
     return new Date(`${dueDate}T00:00:00`) < today();
   });
 
-  // Comment/Attachment counters are always 0 in F1 — Comment and Attachment
-  // do not exist as entities yet (CONTEXT.md), wired up in a later feature.
-  protected readonly commentCount = 0;
+  // Server-computed (ticket #18) — the 💬 badge. Attachment stays 0: Attachment does not exist
+  // as an entity yet (CONTEXT.md), wired up in a later feature.
+  protected readonly commentCount = computed(() => this.task().commentCount);
   protected readonly attachmentCount = 0;
 
   // stopPropagation: the card sits inside a cdkDrag wrapper (ticket #16) — without it, pressing
-  // these buttons could be interpreted as the start of a drag gesture by the CDK listeners above.
+  // these buttons could be interpreted as the start of a drag gesture by the CDK listeners above,
+  // and the click would also bubble up to onCardClick() and open the detail panel underneath.
   protected onEditClick(event: Event): void {
     event.stopPropagation();
     this.editRequested.emit();
@@ -66,5 +70,10 @@ export class TaskCard {
   protected onDeleteClick(event: Event): void {
     event.stopPropagation();
     this.deleteRequested.emit();
+  }
+
+  /** Opens the detail panel (ticket #18) — activated by click or keyboard (Enter/Space). */
+  protected onCardClick(): void {
+    this.detailsRequested.emit();
   }
 }

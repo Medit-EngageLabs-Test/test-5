@@ -80,9 +80,19 @@ public static class TasksEndpoints
         var currentUser = await userProvisioning.GetOrCreateCurrentUserAsync(user);
         var isModerator = user.IsInRole(AppRoles.BoardModerator);
 
+        // One batch query for every Task's comment count (ticket #18's 💬 badge) instead of one
+        // query per Task — same intent as the ADR-0002 sort: keep ListTasks a single round trip.
+        var commentCounts = await db.Comments
+            .GroupBy(c => c.TaskId)
+            .Select(g => new { TaskId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.TaskId, x => x.Count);
+
         _tasksListed(logger, tasks.Count, null);
         return Results.Ok(tasks.Select(task =>
-            TaskResponse.From(task, canDelete: isModerator || task.CreatedById == currentUser.Id)));
+            TaskResponse.From(
+                task,
+                canDelete: isModerator || task.CreatedById == currentUser.Id,
+                commentCount: commentCounts.GetValueOrDefault(task.Id))));
     }
 
     /// <summary>
@@ -119,7 +129,8 @@ public static class TasksEndpoints
         _taskCreated(logger, task.Id, null);
         // The creator can always delete their own just-created Task — no need to re-resolve
         // the moderator/creator check that ListTasks/UpdateTask perform for arbitrary Tasks.
-        return Results.Created($"/api/tasks/{task.Id}", TaskResponse.From(task, canDelete: true));
+        // A brand-new Task has no Comments yet — no need to query for a count of zero.
+        return Results.Created($"/api/tasks/{task.Id}", TaskResponse.From(task, canDelete: true, commentCount: 0));
     }
 
     /// <summary>
@@ -153,9 +164,10 @@ public static class TasksEndpoints
 
         var currentUser = await userProvisioning.GetOrCreateCurrentUserAsync(user);
         var canDelete = user.IsInRole(AppRoles.BoardModerator) || task.CreatedById == currentUser.Id;
+        var commentCount = await db.Comments.CountAsync(c => c.TaskId == task.Id);
 
         _taskUpdated(logger, task.Id, null);
-        return Results.Ok(TaskResponse.From(task, canDelete));
+        return Results.Ok(TaskResponse.From(task, canDelete, commentCount));
     }
 
     /// <summary>
@@ -182,9 +194,10 @@ public static class TasksEndpoints
 
         var currentUser = await userProvisioning.GetOrCreateCurrentUserAsync(user);
         var canDelete = user.IsInRole(AppRoles.BoardModerator) || task.CreatedById == currentUser.Id;
+        var commentCount = await db.Comments.CountAsync(c => c.TaskId == task.Id);
 
         _taskStatusChanged(logger, task.Id, task.Status, null);
-        return Results.Ok(TaskResponse.From(task, canDelete));
+        return Results.Ok(TaskResponse.From(task, canDelete, commentCount));
     }
 
     /// <summary>

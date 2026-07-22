@@ -1,5 +1,12 @@
 .task-card {
   margin-bottom: 0.75rem;
+  // The card itself opens the detail panel (ticket #18) — signal it like any other control.
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 2px;
+  }
 }
 
 .task-card-header {
