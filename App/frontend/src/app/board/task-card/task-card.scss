@@ -1,12 +1,8 @@
 .task-card {
   margin-bottom: 0.75rem;
-  // The card itself opens the detail panel (ticket #18) — signal it like any other control.
+  // Mouse-only convenience — the card is not a keyboard-focusable control itself (see
+  // task-card.html's comment); the "Apri dettaglio Attività" button is the keyboard path.
   cursor: pointer;
-
-  &:focus-visible {
-    outline: 2px solid var(--mat-sys-primary);
-    outline-offset: 2px;
-  }
 }
 
 .task-card-header {

@@ -115,6 +115,21 @@ describe('TaskCard', () => {
     expect(detailsEmitted).toHaveBeenCalledTimes(1);
   });
 
+  it('il comando "Apri dettaglio Attività" è la via accessibile da tastiera ed emette detailsRequested una sola volta (ticket #18)', async () => {
+    const { fixture, element } = await setup(baseTask);
+    const detailsEmitted = vi.fn();
+    fixture.componentInstance.detailsRequested.subscribe(detailsEmitted);
+
+    const detailsButton = element.querySelector<HTMLButtonElement>(
+      '[aria-label="Apri dettaglio Attività"]',
+    );
+    expect(detailsButton).not.toBeNull();
+    detailsButton!.click();
+
+    // stopPropagation on the button prevents the card's own (click) from also firing.
+    expect(detailsEmitted).toHaveBeenCalledTimes(1);
+  });
+
   it('il click sul comando modifica non emette anche detailsRequested', async () => {
     const { fixture, element } = await setup(baseTask);
     const detailsEmitted = vi.fn();

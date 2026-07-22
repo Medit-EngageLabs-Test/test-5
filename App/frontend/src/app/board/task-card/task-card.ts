@@ -62,6 +62,11 @@ export class TaskCard {
   // stopPropagation: the card sits inside a cdkDrag wrapper (ticket #16) — without it, pressing
   // these buttons could be interpreted as the start of a drag gesture by the CDK listeners above,
   // and the click would also bubble up to onCardClick() and open the detail panel underneath.
+  protected onDetailsClick(event: Event): void {
+    event.stopPropagation();
+    this.detailsRequested.emit();
+  }
+
   protected onEditClick(event: Event): void {
     event.stopPropagation();
     this.editRequested.emit();
@@ -72,7 +77,13 @@ export class TaskCard {
     this.deleteRequested.emit();
   }
 
-  /** Opens the detail panel (ticket #18) — activated by click or keyboard (Enter/Space). */
+  /**
+   * Opens the detail panel on a plain card click — mouse-only convenience. The card is not a
+   * keyboard-focusable control (no role="button"/tabindex): it contains the edit/delete/details
+   * buttons above, and a focusable container around other focusable controls is a WCAG
+   * nested-interactive violation (AGENTS.md binds WCAG 2.1 AA). Keyboard/AT users get the same
+   * outcome through the explicit "Apri dettaglio Attività" button instead.
+   */
   protected onCardClick(): void {
     this.detailsRequested.emit();
   }
