@@ -120,15 +120,19 @@ public class TasksEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFix
     [Fact]
     public async Task ListTasks_SerializesStatusAndUrgencyAsNames()
     {
+        // Unique per run — on the shared, persistent testdb (not dropped between fast-gate
+        // runs) a fixed title would match more than one row on a second run, breaking
+        // Assert.Single. Mirrors how ListTasks_OrdersBy... isolates itself by seeded id.
+        var title = $"Nomi enum {Guid.NewGuid()}";
         var userId = await SeedUserAsync();
-        await SeedTaskAsync(userId, "Nomi enum", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        await SeedTaskAsync(userId, title, App.Board.Urgency.Medium, null, DateTime.UtcNow);
 
         var client = CreateAuthenticatedClient();
 
         var response = await client.GetAsync("/api/tasks");
 
         var tasks = await response.Content.ReadFromJsonAsync<JsonElement[]>(JsonOptions);
-        var task = Assert.Single(tasks!, t => t.GetProperty("title").GetString() == "Nomi enum");
+        var task = Assert.Single(tasks!, t => t.GetProperty("title").GetString() == title);
         Assert.Equal("ToDo", task.GetProperty("status").GetString());
         Assert.Equal("Medium", task.GetProperty("urgency").GetString());
     }
