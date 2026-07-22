@@ -97,6 +97,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
    .AllowAnonymous(); // portal health probe — must stay anonymous (core.md)
 
 app.MapTasks();
+app.MapComments();
 
 // Serve Angular SPA for all unmatched routes
 app.MapFallbackToFile("index.html");

@@ -1,5 +1,8 @@
 .task-card {
   margin-bottom: 0.75rem;
+  // Mouse-only convenience — the card is not a keyboard-focusable control itself (see
+  // task-card.html's comment); the "Apri dettaglio Attività" button is the keyboard path.
+  cursor: pointer;
 }
 
 .task-card-header {

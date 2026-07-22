@@ -19,8 +19,9 @@ public record UpdateTaskStatusRequest(Status Status);
 /// <summary>
 /// Wire shape of a Task, projected instead of serializing the entity directly so
 /// <see cref="CanDelete"/> — a per-viewer, resource-based fact (ticket #17: creator or
-/// <see cref="AppRoles.BoardModerator"/>) — travels with it without ever exposing the
-/// <see cref="Board.User"/> navigation itself (name/email of the creator).
+/// <see cref="AppRoles.BoardModerator"/>) — and <see cref="CommentCount"/> (ticket #18: the 💬
+/// badge) travel with it without ever exposing the <see cref="Board.User"/> navigation itself
+/// (name/email of the creator).
 /// </summary>
 public record TaskResponse(
     Guid Id,
@@ -32,10 +33,12 @@ public record TaskResponse(
     Guid CreatedById,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    bool CanDelete)
+    bool CanDelete,
+    int CommentCount)
 {
-    /// <summary>Projects a <see cref="Task"/> entity plus the caller-specific <see cref="CanDelete"/> fact.</summary>
-    public static TaskResponse From(Task task, bool canDelete) => new(
+    /// <summary>Projects a <see cref="Task"/> entity plus the caller-specific <see cref="CanDelete"/>
+    /// fact and its current <see cref="CommentCount"/>.</summary>
+    public static TaskResponse From(Task task, bool canDelete, int commentCount) => new(
         task.Id,
         task.Title,
         task.Description,
@@ -45,5 +48,6 @@ public record TaskResponse(
         task.CreatedById,
         task.CreatedAt,
         task.UpdatedAt,
-        canDelete);
+        canDelete,
+        commentCount);
 }

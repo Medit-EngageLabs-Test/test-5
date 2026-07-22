@@ -1,4 +1,11 @@
-<mat-card appearance="outlined" class="task-card">
+<!--
+  The card itself opens the detail panel on click, as a mouse convenience — it is NOT given
+  role="button"/tabindex: it wraps the edit/delete/details buttons below, and a focusable
+  container around other focusable controls is a WCAG nested-interactive violation (AGENTS.md
+  binds WCAG 2.1 AA). Keyboard/AT users instead get the explicit "Apri dettaglio" button in the
+  actions row, a sibling of edit/delete rather than an ancestor.
+-->
+<mat-card appearance="outlined" class="task-card" (click)="onCardClick()">
   <mat-card-content>
     <div class="task-card-header">
       <h3 class="task-title">{{ task().title }}</h3>
@@ -13,9 +20,16 @@
     }
 
     <div class="task-card-footer">
-      <span class="counter" aria-label="Commenti">💬 {{ commentCount }}</span>
+      <span class="counter" aria-label="Commenti">💬 {{ commentCount() }}</span>
       <span class="counter" aria-label="Allegati">📎 {{ attachmentCount }}</span>
       <span class="task-card-actions">
+        <button
+          mat-icon-button
+          aria-label="Apri dettaglio Attività"
+          (click)="onDetailsClick($event)"
+        >
+          <mat-icon aria-hidden="true">chat_bubble_outline</mat-icon>
+        </button>
         <button mat-icon-button aria-label="Modifica Attività" (click)="onEditClick($event)">
           <mat-icon aria-hidden="true">edit</mat-icon>
         </button>
