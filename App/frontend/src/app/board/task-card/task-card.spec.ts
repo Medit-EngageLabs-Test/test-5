@@ -14,6 +14,7 @@ const baseTask: Task = {
   updatedAt: '2026-01-01T00:00:00Z',
   canDelete: true,
   commentCount: 0,
+  attachmentCount: 0,
 };
 
 async function setup(task: Task) {
@@ -61,10 +62,10 @@ describe('TaskCard', () => {
     expect(element.querySelector('.due-date.overdue')).toBeNull();
   });
 
-  it('mostra il contatore Allegati a zero (non ancora implementato)', async () => {
-    const { element } = await setup(baseTask);
+  it('mostra il contatore Allegati dal task (ticket #20)', async () => {
+    const { element } = await setup({ ...baseTask, attachmentCount: 2 });
 
-    expect(element.querySelector('[aria-label="Allegati"]')?.textContent).toContain('0');
+    expect(element.querySelector('[aria-label="Allegati"]')?.textContent).toContain('2');
   });
 
   it('mostra il contatore Commenti dal task (ticket #18)', async () => {

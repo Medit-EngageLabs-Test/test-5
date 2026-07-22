@@ -54,10 +54,9 @@ export class TaskCard {
     return new Date(`${dueDate}T00:00:00`) < today();
   });
 
-  // Server-computed (ticket #18) — the 💬 badge. Attachment stays 0: Attachment does not exist
-  // as an entity yet (CONTEXT.md), wired up in a later feature.
+  // Server-computed — the 💬 badge (ticket #18) and 📎 badge (ticket #20).
   protected readonly commentCount = computed(() => this.task().commentCount);
-  protected readonly attachmentCount = 0;
+  protected readonly attachmentCount = computed(() => this.task().attachmentCount);
 
   // stopPropagation: the card sits inside a cdkDrag wrapper (ticket #16) — without it, pressing
   // these buttons could be interpreted as the start of a drag gesture by the CDK listeners above,

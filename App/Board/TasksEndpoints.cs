@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using App.Storage;
 using Microsoft.EntityFrameworkCore;
 
 namespace App.Board;
@@ -87,12 +88,21 @@ public static class TasksEndpoints
             .Select(g => new { TaskId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.TaskId, x => x.Count);
 
+        // Grouped by TaskId, not filtered by CommentId — an Attachment's TaskId is always set
+        // (ticket #21), so this single group-by already includes both direct Attachments and
+        // those uploaded to one of the Task's Comments (ticket #20's 📎 badge).
+        var attachmentCounts = await db.Attachments
+            .GroupBy(a => a.TaskId)
+            .Select(g => new { TaskId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.TaskId, x => x.Count);
+
         _tasksListed(logger, tasks.Count, null);
         return Results.Ok(tasks.Select(task =>
             TaskResponse.From(
                 task,
                 canDelete: isModerator || task.CreatedById == currentUser.Id,
-                commentCount: commentCounts.GetValueOrDefault(task.Id))));
+                commentCount: commentCounts.GetValueOrDefault(task.Id),
+                attachmentCount: attachmentCounts.GetValueOrDefault(task.Id))));
     }
 
     /// <summary>
@@ -129,8 +139,10 @@ public static class TasksEndpoints
         _taskCreated(logger, task.Id, null);
         // The creator can always delete their own just-created Task — no need to re-resolve
         // the moderator/creator check that ListTasks/UpdateTask perform for arbitrary Tasks.
-        // A brand-new Task has no Comments yet — no need to query for a count of zero.
-        return Results.Created($"/api/tasks/{task.Id}", TaskResponse.From(task, canDelete: true, commentCount: 0));
+        // A brand-new Task has no Comments/Attachments yet — no need to query for counts of zero.
+        return Results.Created(
+            $"/api/tasks/{task.Id}",
+            TaskResponse.From(task, canDelete: true, commentCount: 0, attachmentCount: 0));
     }
 
     /// <summary>
@@ -165,9 +177,10 @@ public static class TasksEndpoints
         var currentUser = await userProvisioning.GetOrCreateCurrentUserAsync(user);
         var canDelete = user.IsInRole(AppRoles.BoardModerator) || task.CreatedById == currentUser.Id;
         var commentCount = await db.Comments.CountAsync(c => c.TaskId == task.Id);
+        var attachmentCount = await db.Attachments.CountAsync(a => a.TaskId == task.Id);
 
         _taskUpdated(logger, task.Id, null);
-        return Results.Ok(TaskResponse.From(task, canDelete, commentCount));
+        return Results.Ok(TaskResponse.From(task, canDelete, commentCount, attachmentCount));
     }
 
     /// <summary>
@@ -195,9 +208,10 @@ public static class TasksEndpoints
         var currentUser = await userProvisioning.GetOrCreateCurrentUserAsync(user);
         var canDelete = user.IsInRole(AppRoles.BoardModerator) || task.CreatedById == currentUser.Id;
         var commentCount = await db.Comments.CountAsync(c => c.TaskId == task.Id);
+        var attachmentCount = await db.Attachments.CountAsync(a => a.TaskId == task.Id);
 
         _taskStatusChanged(logger, task.Id, task.Status, null);
-        return Results.Ok(TaskResponse.From(task, canDelete, commentCount));
+        return Results.Ok(TaskResponse.From(task, canDelete, commentCount, attachmentCount));
     }
 
     /// <summary>
@@ -207,9 +221,18 @@ public static class TasksEndpoints
     /// owns this specific row OR holds a role", so it is invisible to
     /// <c>EndpointRolesAlignmentTests</c> — verified by hand instead (AGENT-CHECKLIST.md §4).
     /// </summary>
+    /// <remarks>
+    /// Ticket #22 cascade: deleting a Task cascades its Comments and all its Attachments —
+    /// direct ones and its Comments' — at the row level via the FK (AppDbContext), but EF never
+    /// touches the S3 objects behind those Attachment rows. This handler collects every affected
+    /// StorageKey — a single query by TaskId covers both direct and Comment Attachments, since
+    /// TaskId is always set (ticket #21) — and deletes each object best-effort *before* removing
+    /// the Task, so the objects are gone by the time the rows disappear underneath them.
+    /// </remarks>
     private static async System.Threading.Tasks.Task<IResult> DeleteTask(
         Guid id,
         AppDbContext db,
+        IObjectStore objectStore,
         IUserProvisioningService userProvisioning,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
@@ -225,10 +248,17 @@ public static class TasksEndpoints
         if (!isCreator && !isModerator)
             return Results.Forbid();
 
+        var logger = loggerFactory.CreateLogger(LogCategory);
+
+        var storageKeys = await db.Attachments
+            .Where(a => a.TaskId == id)
+            .Select(a => a.StorageKey)
+            .ToListAsync();
+        await AttachmentsEndpoints.DeleteStorageObjectsBestEffortAsync(storageKeys, objectStore, logger);
+
         db.Tasks.Remove(task);
         await db.SaveChangesAsync();
 
-        var logger = loggerFactory.CreateLogger(LogCategory);
         _taskDeleted(logger, task.Id, null);
         return Results.NoContent();
     }

@@ -3,6 +3,7 @@ import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
 import { of, throwError } from 'rxjs';
 import { TaskDetailDialog, TaskDetailDialogData } from './task-detail-dialog';
 import { CommentsService } from '../comments';
+import { AttachmentsService } from '../attachments';
 import { ConfirmDialogService } from '../../shared/confirm-dialog/confirm-dialog.service';
 import { Comment } from '../comment.model';
 import { Task } from '../task.model';
@@ -19,6 +20,7 @@ const task: Task = {
   updatedAt: '2026-01-01T00:00:00Z',
   canDelete: true,
   commentCount: 2,
+  attachmentCount: 0,
 };
 
 // c-1 is the caller's own Comment (canEdit/canDelete true); c-2 belongs to someone else and
@@ -54,6 +56,7 @@ async function setup(
   overrides: {
     comments?: Comment[];
     commentsServiceOverrides?: Partial<CommentsService>;
+    attachmentsServiceOverrides?: Partial<AttachmentsService>;
     confirmResult?: boolean;
   } = {},
 ) {
@@ -65,6 +68,14 @@ async function setup(
     remove: vi.fn().mockReturnValue(of(undefined)),
     ...overrides.commentsServiceOverrides,
   };
+  const attachmentsService = {
+    list: vi.fn().mockReturnValue(of([])),
+    uploadToTask: vi.fn(),
+    uploadToComment: vi.fn(),
+    downloadUrl: vi.fn((id: string) => `/api/attachments/${id}/content`),
+    remove: vi.fn().mockReturnValue(of(undefined)),
+    ...overrides.attachmentsServiceOverrides,
+  };
   const confirmDialogService = {
     confirm: vi.fn().mockResolvedValue(overrides.confirmResult ?? true),
   };
@@ -75,6 +86,7 @@ async function setup(
       { provide: MAT_DIALOG_DATA, useValue: data },
       { provide: MatDialogRef, useValue: dialogRef },
       { provide: CommentsService, useValue: commentsService },
+      { provide: AttachmentsService, useValue: attachmentsService },
       { provide: ConfirmDialogService, useValue: confirmDialogService },
     ],
   }).compileComponents();
@@ -111,6 +123,7 @@ async function setup(
     element,
     dialogRef,
     commentsService,
+    attachmentsService,
     confirmDialogService,
     submitForm,
     setBody,
@@ -249,5 +262,203 @@ describe('TaskDetailDialog', () => {
     await settle();
 
     expect(commentsService.remove).not.toHaveBeenCalled();
+  });
+
+  // ── #20 — Allegati sulla Attività ────────────────────────────────────────────
+
+  it('carica la lista Allegati della Attività (ticket #20)', async () => {
+    const attachment = {
+      id: 'a-1',
+      taskId: 't-1',
+      commentId: null,
+      fileName: 'nota.txt',
+      contentType: 'text/plain',
+      sizeBytes: 2048,
+      uploadedById: 'u-1',
+      createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
+    };
+    const { element, attachmentsService } = await setup(
+      { task },
+      { attachmentsServiceOverrides: { list: vi.fn().mockReturnValue(of([attachment])) } },
+    );
+
+    expect(attachmentsService.list).toHaveBeenCalledWith('t-1');
+    expect(element.textContent).toContain('nota.txt');
+    expect(element.textContent).toContain('2.0 KB');
+  });
+
+  it('senza allegati mostra lo stato vuoto', async () => {
+    const { element } = await setup({ task });
+
+    expect(element.querySelector('.attachments-section')?.textContent).toContain(
+      'Nessun allegato.',
+    );
+  });
+
+  it('caricare un file chiama uploadToTask e ricarica gli allegati', async () => {
+    const uploadedAttachment = {
+      id: 'a-2',
+      taskId: 't-1',
+      commentId: null,
+      fileName: 'immagine.png',
+      contentType: 'image/png',
+      sizeBytes: 512,
+      uploadedById: 'u-1',
+      createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
+    };
+    const { fixture, attachmentsService } = await setup(
+      { task },
+      {
+        attachmentsServiceOverrides: {
+          uploadToTask: vi.fn().mockReturnValue(of(uploadedAttachment)),
+        },
+      },
+    );
+    const file = new File(['contenuto'], 'immagine.png', { type: 'image/png' });
+    const input = document.createElement('input');
+    Object.defineProperty(input, 'files', { value: [file] });
+
+    fixture.componentInstance['onTaskFileSelected']({ target: input } as unknown as Event, input);
+
+    expect(attachmentsService.uploadToTask).toHaveBeenCalledWith('t-1', file);
+    expect(attachmentsService.list).toHaveBeenCalledTimes(2); // initial load + refresh after upload
+  });
+
+  // ── #21 — Allegati sui messaggi ──────────────────────────────────────────────
+
+  it('mostra gli allegati di un messaggio sotto al suo testo (ticket #21)', async () => {
+    const commentAttachment = {
+      id: 'a-3',
+      taskId: 't-1',
+      commentId: 'c-1',
+      fileName: 'sul-messaggio.txt',
+      contentType: 'text/plain',
+      sizeBytes: 100,
+      uploadedById: 'u-1',
+      createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
+    };
+    const { element } = await setup(
+      { task },
+      { attachmentsServiceOverrides: { list: vi.fn().mockReturnValue(of([commentAttachment])) } },
+    );
+
+    const items = element.querySelectorAll('.comment');
+    expect(items[0].textContent).toContain('sul-messaggio.txt');
+    expect(items[1].textContent).not.toContain('sul-messaggio.txt');
+  });
+
+  it('caricare un file su un messaggio chiama uploadToComment e ricarica gli allegati', async () => {
+    const uploadedAttachment = {
+      id: 'a-4',
+      taskId: 't-1',
+      commentId: 'c-1',
+      fileName: 'allegato.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 2048,
+      uploadedById: 'u-1',
+      createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
+    };
+    const { fixture, attachmentsService } = await setup(
+      { task },
+      {
+        attachmentsServiceOverrides: {
+          uploadToComment: vi.fn().mockReturnValue(of(uploadedAttachment)),
+        },
+      },
+    );
+    const file = new File(['contenuto'], 'allegato.pdf', { type: 'application/pdf' });
+    const input = document.createElement('input');
+    Object.defineProperty(input, 'files', { value: [file] });
+
+    fixture.componentInstance['onCommentFileSelected'](
+      { target: input } as unknown as Event,
+      ownComment,
+      input,
+    );
+
+    expect(attachmentsService.uploadToComment).toHaveBeenCalledWith('c-1', file);
+    expect(attachmentsService.list).toHaveBeenCalledTimes(2); // initial load + refresh after upload
+  });
+
+  // ── #22 — Rimuovere allegati ─────────────────────────────────────────────────
+
+  it('il comando rimuovi allegato è visibile solo quando canDelete è true (ticket #22)', async () => {
+    const own = {
+      id: 'a-5',
+      taskId: 't-1',
+      commentId: null,
+      fileName: 'mio.txt',
+      contentType: 'text/plain',
+      sizeBytes: 10,
+      uploadedById: 'u-1',
+      createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
+    };
+    const notMine = { ...own, id: 'a-6', fileName: 'altrui.txt', canDelete: false };
+    const { element } = await setup(
+      { task },
+      { attachmentsServiceOverrides: { list: vi.fn().mockReturnValue(of([own, notMine])) } },
+    );
+
+    const items = Array.from(element.querySelectorAll('.attachments-section .attachment'));
+    const ownItem = items.find((item) => item.textContent?.includes('mio.txt'));
+    const notMineItem = items.find((item) => item.textContent?.includes('altrui.txt'));
+    expect(ownItem?.querySelector('[aria-label="Elimina allegato"]')).not.toBeNull();
+    expect(notMineItem?.querySelector('[aria-label="Elimina allegato"]')).toBeNull();
+  });
+
+  it('rimuovi allegato: conferma poi chiama remove e ricarica gli allegati', async () => {
+    const attachment = {
+      id: 'a-7',
+      taskId: 't-1',
+      commentId: null,
+      fileName: 'da-rimuovere.txt',
+      contentType: 'text/plain',
+      sizeBytes: 10,
+      uploadedById: 'u-1',
+      createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
+    };
+    const { element, attachmentsService, confirmDialogService, settle } = await setup(
+      { task },
+      { attachmentsServiceOverrides: { list: vi.fn().mockReturnValue(of([attachment])) } },
+    );
+
+    element.querySelector<HTMLButtonElement>('[aria-label="Elimina allegato"]')!.click();
+    await settle();
+
+    expect(confirmDialogService.confirm).toHaveBeenCalled();
+    expect(attachmentsService.remove).toHaveBeenCalledWith('a-7');
+    expect(attachmentsService.list).toHaveBeenCalledTimes(2); // initial load + refresh after delete
+  });
+
+  it('rimuovi allegato: annullare la conferma non chiama remove', async () => {
+    const attachment = {
+      id: 'a-8',
+      taskId: 't-1',
+      commentId: null,
+      fileName: 'non-rimosso.txt',
+      contentType: 'text/plain',
+      sizeBytes: 10,
+      uploadedById: 'u-1',
+      createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
+    };
+    const { element, attachmentsService, settle } = await setup(
+      { task },
+      {
+        attachmentsServiceOverrides: { list: vi.fn().mockReturnValue(of([attachment])) },
+        confirmResult: false,
+      },
+    );
+
+    element.querySelector<HTMLButtonElement>('[aria-label="Elimina allegato"]')!.click();
+    await settle();
+
+    expect(attachmentsService.remove).not.toHaveBeenCalled();
   });
 });

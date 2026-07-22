@@ -98,6 +98,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
 
 app.MapTasks();
 app.MapComments();
+app.MapAttachments();
 
 // Serve Angular SPA for all unmatched routes
 app.MapFallbackToFile("index.html");

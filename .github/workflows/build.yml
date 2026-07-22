@@ -284,12 +284,13 @@ jobs:
           OIDC_ISSUER: http://localhost:4011
           OIDC_CLIENT_ID: e2e-client
           OIDC_CLIENT_SECRET: e2e-secret
-          # Storage capability: no-fallback config requires values at startup.
-          # Placeholders suffice as long as E2E do not exercise storage paths.
+          # Storage capability: the E2E suite now exercises attachment upload/download
+          # (F5), so point the backend at the real CI MinIO started above (same bucket
+          # and credentials as the backend-test step), not unusable placeholders.
           Storage__Endpoint: http://localhost:9000
-          Storage__BucketName: ci-placeholder
+          Storage__BucketName: ci-bucket
           Storage__Folder: ci
-          Storage__AccessKey: ci
+          Storage__AccessKey: ci-minio
           Storage__SecretKey: ci-secret
           Storage__Region: us-east-1
 

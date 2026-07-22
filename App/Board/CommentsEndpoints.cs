@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using App.Storage;
 using Microsoft.EntityFrameworkCore;
 
 namespace App.Board;
@@ -169,9 +170,16 @@ public static class CommentsEndpoints
     /// cannot express "the caller owns this specific row OR holds a role", so it is invisible to
     /// <c>EndpointRolesAlignmentTests</c> — verified by hand instead (AGENT-CHECKLIST.md §4).
     /// </summary>
+    /// <remarks>
+    /// Ticket #21 cascade: deleting a Comment cascades its Attachments at the row level via the
+    /// FK (AppDbContext), but EF never touches the S3 objects behind those rows. This handler
+    /// collects their StorageKeys and deletes each object best-effort *before* removing the
+    /// Comment, so the objects are gone by the time the rows disappear underneath them.
+    /// </remarks>
     private static async System.Threading.Tasks.Task<IResult> DeleteComment(
         Guid id,
         AppDbContext db,
+        IObjectStore objectStore,
         IUserProvisioningService userProvisioning,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
@@ -187,10 +195,17 @@ public static class CommentsEndpoints
         if (!isAuthor && !isModerator)
             return Results.Forbid();
 
+        var logger = loggerFactory.CreateLogger(LogCategory);
+
+        var storageKeys = await db.Attachments
+            .Where(a => a.CommentId == id)
+            .Select(a => a.StorageKey)
+            .ToListAsync();
+        await AttachmentsEndpoints.DeleteStorageObjectsBestEffortAsync(storageKeys, objectStore, logger);
+
         db.Comments.Remove(comment);
         await db.SaveChangesAsync();
 
-        var logger = loggerFactory.CreateLogger(LogCategory);
         _commentDeleted(logger, comment.Id, null);
         return Results.NoContent();
     }
