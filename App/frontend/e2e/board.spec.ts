@@ -15,7 +15,15 @@ test.describe('Board', () => {
   });
 
   test('senza Attività ogni colonna mostra lo stato vuoto', async ({ page }) => {
-    // A fresh dev/CI database has no Tasks yet (ticket #9 ships no write endpoint).
+    // No longer a fresh-database given: F3 (tickets #14-#17) ships write endpoints, and the
+    // Board is a single shared, un-isolated entity (CONTEXT.md) — a previous test run (or a
+    // developer clicking around) may have left Tasks behind. Clear it first through the same
+    // DELETE the UI's own command uses (ticket #17) instead of assuming an empty database.
+    const existing = await page.request.get('/api/tasks');
+    const tasks = (await existing.json()) as Array<{ id: string }>;
+    await Promise.all(tasks.map((task) => page.request.delete(`/api/tasks/${task.id}`)));
+    await page.reload();
+
     const columns = page.locator('.board-column');
     await expect(columns).toHaveCount(3);
     for (const column of await columns.all()) {

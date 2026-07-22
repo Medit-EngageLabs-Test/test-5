@@ -15,13 +15,21 @@
         onDrop() no-ops when previousContainer === container, so a drop back into the same
         column never changes anything.
       -->
-      <div class="column-drop-list" cdkDropList (cdkDropListDropped)="onDrop($event, column.status)">
+      <div
+        class="column-drop-list"
+        cdkDropList
+        (cdkDropListDropped)="onDrop($event, column.status)"
+      >
         @if (tasksFor(column.status).length === 0) {
           <p class="empty-state">Nessuna Attività qui.</p>
         } @else {
           @for (task of tasksFor(column.status); track task.id) {
             <div class="task-card-drag" cdkDrag [cdkDragData]="task">
-              <app-task-card [task]="task" (editRequested)="openEditDialog(task)" />
+              <app-task-card
+                [task]="task"
+                (editRequested)="openEditDialog(task)"
+                (deleteRequested)="confirmDelete(task)"
+              />
             </div>
           }
         }

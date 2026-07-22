@@ -19,6 +19,11 @@
         <button mat-icon-button aria-label="Modifica Attività" (click)="onEditClick($event)">
           <mat-icon aria-hidden="true">edit</mat-icon>
         </button>
+        @if (task().canDelete) {
+          <button mat-icon-button aria-label="Elimina Attività" (click)="onDeleteClick($event)">
+            <mat-icon aria-hidden="true">delete</mat-icon>
+          </button>
+        }
       </span>
     </div>
   </mat-card-content>

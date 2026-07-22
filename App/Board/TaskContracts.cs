@@ -1,5 +1,8 @@
 namespace App.Board;
 
+// Fully-qualified in the return-type positions below where bare "Task" would be ambiguous
+// (CS0104/CS0308) is not needed here — these are plain data contracts, never Task<T>.
+
 /// <summary>Body of <c>POST /api/tasks</c> (ticket #14). <see cref="Title"/> is the only
 /// required field; <see cref="Urgency"/> defaults to <see cref="Board.Urgency.Medium"/> when
 /// omitted (CONTEXT.md "Urgenza").</summary>

@@ -78,4 +78,24 @@ describe('TaskCard', () => {
 
     expect(editEmitted).toHaveBeenCalledTimes(1);
   });
+
+  it('il comando elimina è visibile quando canDelete è true ed emette deleteRequested', async () => {
+    const { fixture, element } = await setup({ ...baseTask, canDelete: true });
+    const deleteEmitted = vi.fn();
+    fixture.componentInstance.deleteRequested.subscribe(deleteEmitted);
+
+    const deleteButton = element.querySelector<HTMLButtonElement>(
+      '[aria-label="Elimina Attività"]',
+    );
+    expect(deleteButton).not.toBeNull();
+    deleteButton!.click();
+
+    expect(deleteEmitted).toHaveBeenCalledTimes(1);
+  });
+
+  it('il comando elimina è nascosto quando canDelete è false (ticket #17)', async () => {
+    const { element } = await setup({ ...baseTask, canDelete: false });
+
+    expect(element.querySelector('[aria-label="Elimina Attività"]')).toBeNull();
+  });
 });

@@ -26,6 +26,9 @@ export class TaskCard {
   /** Emitted when the edit command is activated — allowed to any authenticated User (ticket #15). */
   readonly editRequested = output<void>();
 
+  /** Emitted when the delete command is activated — only rendered when `task().canDelete` (ticket #17). */
+  readonly deleteRequested = output<void>();
+
   protected readonly urgencyLabel = computed(() => URGENCY_LABELS[this.task().urgency]);
 
   protected readonly urgencyClass = computed(() => `urgency-${this.task().urgency.toLowerCase()}`);
@@ -53,10 +56,15 @@ export class TaskCard {
   protected readonly commentCount = 0;
   protected readonly attachmentCount = 0;
 
-  // stopPropagation: the card will later sit inside a cdkDrag wrapper (ticket #16) — without
-  // it, pressing this button could be interpreted as the start of a drag gesture.
+  // stopPropagation: the card sits inside a cdkDrag wrapper (ticket #16) — without it, pressing
+  // these buttons could be interpreted as the start of a drag gesture by the CDK listeners above.
   protected onEditClick(event: Event): void {
     event.stopPropagation();
     this.editRequested.emit();
+  }
+
+  protected onDeleteClick(event: Event): void {
+    event.stopPropagation();
+    this.deleteRequested.emit();
   }
 }

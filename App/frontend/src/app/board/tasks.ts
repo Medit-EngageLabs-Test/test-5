@@ -28,4 +28,9 @@ export class TasksService {
   updateStatus(id: string, status: TaskStatus): Observable<Task> {
     return this.#http.patch<Task>(`${this.#base}/${id}/status`, { status });
   }
+
+  /** Deletes a Task (ticket #17) — 403 when the caller is neither its creator nor a Moderator. */
+  remove(id: string): Observable<void> {
+    return this.#http.delete<void>(`${this.#base}/${id}`);
+  }
 }

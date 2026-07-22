@@ -8,10 +8,9 @@ using BoardUser = App.Board.User;
 namespace App.Tests;
 
 /// <summary>
-/// Covers <c>GET /api/tasks</c> and <c>POST /api/tasks</c>: empty list, the ADR-0002 ordering
-/// (Urgency High→Low, then DueDate ascending with no-due-date last, then CreatedAt descending)
-/// seeded directly through <see cref="AppDbContext"/>, the <c>canDelete</c> projection, and
-/// Task creation (ticket #14).
+/// Covers <c>GET /api/tasks</c>: empty list, and the ADR-0002 ordering (Urgency High→Low, then
+/// DueDate ascending with no-due-date last, then CreatedAt descending) seeded directly through
+/// <see cref="AppDbContext"/> — ticket #9 ships no write endpoint yet.
 /// </summary>
 public class TasksEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFixture<RoleAuthenticatedAppFactory>
 {
@@ -23,6 +22,17 @@ public class TasksEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFix
     {
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(RoleAuthenticatedAppFactory.RolesHeader, AppRoles.BoardModerator);
+        return client;
+    }
+
+    // Authenticated but with none of the roles declared in roles.json — used to exercise the
+    // "authenticated, not a moderator" branch of DeleteTask's imperative check (ticket #17).
+    // The header is present (so the test scheme authenticates the request) but empty (no role
+    // claims added).
+    private HttpClient CreateAuthenticatedClientWithoutRoles()
+    {
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(RoleAuthenticatedAppFactory.RolesHeader, string.Empty);
         return client;
     }
 
@@ -153,6 +163,21 @@ public class TasksEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFix
         Assert.True(task.GetProperty("canDelete").GetBoolean());
     }
 
+    [Fact]
+    public async Task ListTasks_CanDeleteIsFalse_ForOtherAuthenticatedUser()
+    {
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(
+            creatorId, $"Non visibile ad altri {Guid.NewGuid()}", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        var client = CreateAuthenticatedClientWithoutRoles();
+
+        var response = await client.GetAsync("/api/tasks");
+
+        var tasks = await response.Content.ReadFromJsonAsync<JsonElement[]>(JsonOptions);
+        var task = Assert.Single(tasks!, t => t.GetProperty("id").GetGuid() == taskId);
+        Assert.False(task.GetProperty("canDelete").GetBoolean());
+    }
+
     // ── #14 — Creare un'Attività ───────────────────────────────────────────────
 
     [Fact]
@@ -269,6 +294,67 @@ public class TasksEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFix
         var client = CreateAuthenticatedClient();
 
         var response = await client.PatchAsJsonAsync($"/api/tasks/{Guid.NewGuid()}/status", new { status = "Done" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    // ── #17 — Eliminare (creatore o Moderatore) ─────────────────────────────────
+
+    [Fact]
+    public async Task DeleteTask_ByItsCreator_Returns204()
+    {
+        // The test principal carries no oid/sub, so every non-moderator caller resolves to the
+        // same open-mode synthetic User (UserProvisioningService.LocalDevOid): creating the Task
+        // through the API — instead of seeding it with a random creator — is what makes THIS
+        // caller its creator, exercising the isCreator branch and not the isModerator one.
+        var createClient = CreateAuthenticatedClientWithoutRoles();
+        var createResponse = await createClient.PostAsJsonAsync(
+            "/api/tasks", new { title = $"Mia attività {Guid.NewGuid()}" });
+        var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        var taskId = created.GetProperty("id").GetGuid();
+
+        var deleteClient = CreateAuthenticatedClientWithoutRoles();
+        var response = await deleteClient.DeleteAsync($"/api/tasks/{taskId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteTask_ByModerator_Returns204_EvenWhenNotCreator()
+    {
+        // A fresh, distinct creator (never resolved by any test principal here) isolates the
+        // moderator branch: this caller can only succeed via the BoardModerator role, not via
+        // CreatedById — otherwise this test would pass for the wrong reason.
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(
+            creatorId, $"Di un altro Utente {Guid.NewGuid()}", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        var client = CreateAuthenticatedClient(); // carries AppRoles.BoardModerator
+
+        var response = await client.DeleteAsync($"/api/tasks/{taskId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteTask_ByOtherAuthenticatedUser_Returns403()
+    {
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(
+            creatorId, $"Non eliminabile da altri {Guid.NewGuid()}", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        // Resolves to the synthetic User, not creatorId, and carries no BoardModerator role.
+        var client = CreateAuthenticatedClientWithoutRoles();
+
+        var response = await client.DeleteAsync($"/api/tasks/{taskId}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteTask_UnknownId_Returns404()
+    {
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.DeleteAsync($"/api/tasks/{Guid.NewGuid()}");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }

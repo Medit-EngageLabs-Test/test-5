@@ -8,6 +8,7 @@ import { TasksService } from './tasks';
 import { Task, TaskStatus } from './task.model';
 import { TaskCard } from './task-card/task-card';
 import { TaskFormDialog, TaskFormDialogData } from './task-form-dialog/task-form-dialog';
+import { ConfirmDialogService } from '../shared/confirm-dialog/confirm-dialog.service';
 
 interface ColumnConfig {
   status: TaskStatus;
@@ -29,9 +30,8 @@ const DONE_PAGE_SIZE = 50;
 const SNACK_BAR_DURATION_MS = 3000;
 
 /**
- * The Board: three columns, one per Status, filled from `GET /api/tasks`. Supports creating and
- * editing Tasks via a Material form dialog (tickets #14-#15), and moving them between columns
- * via drag&drop (ticket #16).
+ * The Board: three columns, one per Status, filled from `GET /api/tasks`. Supports creating,
+ * editing, moving (drag&drop between columns) and deleting Tasks (F3, tickets #14–#17).
  */
 @Component({
   selector: 'app-board',
@@ -44,11 +44,12 @@ export class Board {
   readonly #tasksService = inject(TasksService);
   readonly #dialog = inject(MatDialog);
   readonly #snackBar = inject(MatSnackBar);
+  readonly #confirmDialog = inject(ConfirmDialogService);
 
   protected readonly columns = COLUMNS;
 
-  // Plain signal, not toSignal(list()): create() (and later edit/move/delete) calls refresh()
-  // to re-fetch, since ADR-0002 ordering is entirely server-side (nothing to reorder locally).
+  // Plain signal, not toSignal(list()): every create/edit/move/delete calls refresh() to
+  // re-fetch, since ADR-0002 ordering is entirely server-side (no local reordering to maintain).
   protected readonly tasks = signal<Task[]>([]);
 
   // How many Done Tasks are currently visible — "mostra altre" grows it by DONE_PAGE_SIZE.
@@ -101,15 +102,43 @@ export class Board {
   }
 
   private openTaskForm(data: TaskFormDialogData, successMessage: string): void {
-    const dialogRef = this.#dialog.open<TaskFormDialog, TaskFormDialogData, boolean>(TaskFormDialog, {
-      data,
-      width: '480px',
-    });
+    const dialogRef = this.#dialog.open<TaskFormDialog, TaskFormDialogData, boolean>(
+      TaskFormDialog,
+      {
+        data,
+        width: '480px',
+      },
+    );
 
     dialogRef.afterClosed().subscribe((saved) => {
       if (!saved) return;
       this.refresh();
       this.#snackBar.open(successMessage, 'Chiudi', { duration: SNACK_BAR_DURATION_MS });
+    });
+  }
+
+  /**
+   * Confirms then deletes a Task (ticket #17) — the delete command itself is only ever
+   * rendered by TaskCard when `task.canDelete` is true.
+   */
+  protected async confirmDelete(task: Task): Promise<void> {
+    const confirmed = await this.#confirmDialog.confirm({
+      title: 'Eliminare questa Attività?',
+      message: `«${task.title}» sarà eliminata definitivamente.`,
+      confirmLabel: 'Elimina',
+      danger: true,
+    });
+    if (!confirmed) return;
+
+    this.#tasksService.remove(task.id).subscribe({
+      next: () => {
+        this.refresh();
+        this.#snackBar.open('Attività eliminata.', 'Chiudi', { duration: SNACK_BAR_DURATION_MS });
+      },
+      error: () =>
+        this.#snackBar.open('Impossibile eliminare l’Attività.', 'Chiudi', {
+          duration: SNACK_BAR_DURATION_MS,
+        }),
     });
   }
 

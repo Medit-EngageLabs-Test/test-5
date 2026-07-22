@@ -16,12 +16,14 @@ public static class TasksEndpoints
 
         // No explicit RequireRole on any of these: like ListTasks, the platform's FallbackPolicy
         // already requires an authenticated session in production (core.md); open mode (local
-        // dev/CI, no OIDC contract) leaves them open. A later ticket (#17, delete) adds an
-        // imperative, resource-based check that RequireRole cannot express — see its own comment.
+        // dev/CI, no OIDC contract) leaves them open. Only DeleteTask adds an imperative,
+        // resource-based check (creator or AppRoles.BoardModerator) that RequireRole cannot
+        // express — see its own comment.
         group.MapGet("/", ListTasks);
         group.MapPost("/", CreateTask);
         group.MapPut("/{id:guid}", UpdateTask);
         group.MapPatch("/{id:guid}/status", UpdateTaskStatus);
+        group.MapDelete("/{id:guid}", DeleteTask);
     }
 
     private static readonly Action<ILogger, int, Exception?> _tasksListed =
@@ -47,6 +49,12 @@ public static class TasksEndpoints
             LogLevel.Information,
             new EventId(1104, "TaskStatusChanged"),
             "Task status changed — id={TaskId}, status={Status}");
+
+    private static readonly Action<ILogger, Guid, Exception?> _taskDeleted =
+        LoggerMessage.Define<Guid>(
+            LogLevel.Information,
+            new EventId(1105, "TaskDeleted"),
+            "Task deleted — id={TaskId}");
 
     /// <summary>
     /// Returns every Task ordered per ADR-0002: Urgency (High→Low), then DueDate ascending
@@ -177,5 +185,38 @@ public static class TasksEndpoints
 
         _taskStatusChanged(logger, task.Id, task.Status, null);
         return Results.Ok(TaskResponse.From(task, canDelete));
+    }
+
+    /// <summary>
+    /// Deletes a Task (ticket #17) — allowed only to its creator or to
+    /// <see cref="AppRoles.BoardModerator"/>. This is an imperative, resource-based check on
+    /// purpose: <c>RequireRole</c>/policy-based authorization has no way to express "the caller
+    /// owns this specific row OR holds a role", so it is invisible to
+    /// <c>EndpointRolesAlignmentTests</c> — verified by hand instead (AGENT-CHECKLIST.md §4).
+    /// </summary>
+    private static async System.Threading.Tasks.Task<IResult> DeleteTask(
+        Guid id,
+        AppDbContext db,
+        IUserProvisioningService userProvisioning,
+        ClaimsPrincipal user,
+        ILoggerFactory loggerFactory)
+    {
+        var task = await db.Tasks.FindAsync(id);
+        if (task is null)
+            return Results.NotFound();
+
+        var currentUser = await userProvisioning.GetOrCreateCurrentUserAsync(user);
+        var isCreator = task.CreatedById == currentUser.Id;
+        var isModerator = user.IsInRole(AppRoles.BoardModerator);
+
+        if (!isCreator && !isModerator)
+            return Results.Forbid();
+
+        db.Tasks.Remove(task);
+        await db.SaveChangesAsync();
+
+        var logger = loggerFactory.CreateLogger(LogCategory);
+        _taskDeleted(logger, task.Id, null);
+        return Results.NoContent();
     }
 }

@@ -105,4 +105,17 @@ test.describe('Attività — creare, modificare, spostare, eliminare (F3)', () =
     await expect(page.locator('.board-column[aria-label="Doing"]').getByText(title)).toBeVisible();
     await expect(page.locator('.board-column[aria-label="To Do"]').getByText(title)).toHaveCount(0);
   });
+
+  // ── #17 — Eliminare (creatore o Moderatore) ─────────────────────────────────
+
+  test("eliminare un'Attività la fa sparire dalla Board (come creatore)", async ({ page }) => {
+    const title = uniqueTitle('elimina');
+    await createTask(page, title);
+
+    await cardByTitle(page, title).getByRole('button', { name: 'Elimina Attività' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.getByRole('button', { name: 'Elimina', exact: true }).click();
+
+    await expect(page.getByText(title)).toHaveCount(0);
+  });
 });
