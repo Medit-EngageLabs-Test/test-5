@@ -5,11 +5,22 @@ import { BoardRealtimeService } from './board-realtime';
  * (`.on(eventName, handler)`/`.onreconnected(handler)`) instead of letting the real
  * `@microsoft/signalr` client attempt a network connection in a unit test — this is what lets
  * these tests drive the service's own event-wiring logic directly, the way the real hub would.
+ *
+ * `vi.mock(...)` factories are hoisted above every other statement in the file, including the
+ * initializers of `const`/`let` declared above them in source — a plain module-scope variable
+ * referenced from the factory can therefore be read before it is assigned, depending on the
+ * runner/transform (this passed locally yet failed in CI with a real, unmocked `HubConnection`
+ * trying to resolve `/api/hubs/board` — the mock factory's `ReferenceError` on that
+ * not-yet-initialized variable never surfaced, it silently fell back to the real module).
+ * `vi.hoisted(...)` is the documented fix: its callback is guaranteed to run before the mock
+ * factory that references it, regardless of environment.
  */
-const handlers = new Map<string, (...args: unknown[]) => void>();
-let reconnectedHandler: (() => void) | undefined;
-let startCallCount = 0;
-let startBehavior: () => Promise<void> = () => Promise.resolve();
+const state = vi.hoisted(() => ({
+  handlers: new Map<string, (...args: unknown[]) => void>(),
+  reconnectedHandler: undefined as (() => void) | undefined,
+  startCallCount: 0,
+  startBehavior: (() => Promise.resolve()) as () => Promise<void>,
+}));
 
 vi.mock('@microsoft/signalr', () => {
   class FakeHubConnectionBuilder {
@@ -24,14 +35,14 @@ vi.mock('@microsoft/signalr', () => {
     build() {
       return {
         on: (eventName: string, handler: (...args: unknown[]) => void) => {
-          handlers.set(eventName, handler);
+          state.handlers.set(eventName, handler);
         },
         onreconnected: (handler: () => void) => {
-          reconnectedHandler = handler;
+          state.reconnectedHandler = handler;
         },
         start: () => {
-          startCallCount++;
-          return startBehavior();
+          state.startCallCount++;
+          return state.startBehavior();
         },
       };
     }
@@ -49,10 +60,10 @@ async function flush(): Promise<void> {
 
 describe('BoardRealtimeService', () => {
   beforeEach(() => {
-    handlers.clear();
-    reconnectedHandler = undefined;
-    startCallCount = 0;
-    startBehavior = () => Promise.resolve();
+    state.handlers.clear();
+    state.reconnectedHandler = undefined;
+    state.startCallCount = 0;
+    state.startBehavior = () => Promise.resolve();
     vi.useRealTimers();
   });
 
@@ -63,24 +74,24 @@ describe('BoardRealtimeService', () => {
 
     await flush();
 
-    expect(startCallCount).toBe(1);
+    expect(state.startCallCount).toBe(1);
     expect(realigned).toHaveBeenCalledTimes(1);
   });
 
   it('un fallimento della prima connessione viene ritentato (non delegato ad Automatic Reconnect)', async () => {
     vi.useFakeTimers();
     let attempts = 0;
-    startBehavior = () => {
+    state.startBehavior = () => {
       attempts++;
       return attempts === 1 ? Promise.reject(new Error('offline')) : Promise.resolve();
     };
 
     new BoardRealtimeService();
     await vi.advanceTimersByTimeAsync(0);
-    expect(startCallCount).toBe(1);
+    expect(state.startCallCount).toBe(1);
 
     await vi.advanceTimersByTimeAsync(5000);
-    expect(startCallCount).toBe(2);
+    expect(state.startCallCount).toBe(2);
     vi.useRealTimers();
   });
 
@@ -90,7 +101,7 @@ describe('BoardRealtimeService', () => {
     const realigned = vi.fn();
     service.realigned$.subscribe(realigned);
 
-    reconnectedHandler?.();
+    state.reconnectedHandler?.();
 
     expect(realigned).toHaveBeenCalledTimes(1);
   });
@@ -138,7 +149,7 @@ describe('BoardRealtimeService', () => {
         }
       ).subscribe((value) => received.push(value));
 
-      handlers.get(hubEventName)?.(...hubArgs);
+      state.handlers.get(hubEventName)?.(...hubArgs);
 
       expect(received).toEqual([expectedPayload]);
     },
