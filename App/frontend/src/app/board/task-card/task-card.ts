@@ -1,14 +1,8 @@
 import { Component, ChangeDetectionStrategy, computed, input } from '@angular/core';
 import { MatCard, MatCardContent } from '@angular/material/card';
 import { MatIcon } from '@angular/material/icon';
-import { Task, TaskUrgency } from '../task.model';
-
-/** Italian display label for each Urgency value (CONTEXT.md "Urgenza"). */
-const URGENCY_LABELS: Record<TaskUrgency, string> = {
-  Low: 'Bassa',
-  Medium: 'Media',
-  High: 'Alta',
-};
+import { Task } from '../task.model';
+import { URGENCY_LABELS } from '../urgency';
 
 /** Today at midnight, local time — DueDate carries no time component. */
 function today(): Date {

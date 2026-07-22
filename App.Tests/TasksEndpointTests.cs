@@ -8,9 +8,10 @@ using BoardUser = App.Board.User;
 namespace App.Tests;
 
 /// <summary>
-/// Covers <c>GET /api/tasks</c>: empty list, and the ADR-0002 ordering (Urgency High→Low, then
-/// DueDate ascending with no-due-date last, then CreatedAt descending) seeded directly through
-/// <see cref="AppDbContext"/> — ticket #9 ships no write endpoint yet.
+/// Covers <c>GET /api/tasks</c> and <c>POST /api/tasks</c>: empty list, the ADR-0002 ordering
+/// (Urgency High→Low, then DueDate ascending with no-due-date last, then CreatedAt descending)
+/// seeded directly through <see cref="AppDbContext"/>, the <c>canDelete</c> projection, and
+/// Task creation (ticket #14).
 /// </summary>
 public class TasksEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFixture<RoleAuthenticatedAppFactory>
 {
@@ -135,5 +136,51 @@ public class TasksEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFix
         var task = Assert.Single(tasks!, t => t.GetProperty("title").GetString() == title);
         Assert.Equal("ToDo", task.GetProperty("status").GetString());
         Assert.Equal("Medium", task.GetProperty("urgency").GetString());
+    }
+
+    [Fact]
+    public async Task ListTasks_CanDeleteIsTrue_ForModerator_EvenWhenNotCreator()
+    {
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(
+            creatorId, $"Visibile al Moderatore {Guid.NewGuid()}", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        var client = CreateAuthenticatedClient(); // carries AppRoles.BoardModerator
+
+        var response = await client.GetAsync("/api/tasks");
+
+        var tasks = await response.Content.ReadFromJsonAsync<JsonElement[]>(JsonOptions);
+        var task = Assert.Single(tasks!, t => t.GetProperty("id").GetGuid() == taskId);
+        Assert.True(task.GetProperty("canDelete").GetBoolean());
+    }
+
+    // ── #14 — Creare un'Attività ───────────────────────────────────────────────
+
+    [Fact]
+    public async Task CreateTask_AttributesCurrentUserAndAppliesDefaults()
+    {
+        var client = CreateAuthenticatedClient();
+        var title = $"Nuova attività {Guid.NewGuid()}";
+
+        var response = await client.PostAsJsonAsync("/api/tasks", new { title });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var task = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        Assert.Equal(title, task.GetProperty("title").GetString());
+        Assert.Equal("ToDo", task.GetProperty("status").GetString());
+        Assert.Equal("Medium", task.GetProperty("urgency").GetString());
+        Assert.NotEqual(Guid.Empty, task.GetProperty("createdById").GetGuid());
+        Assert.True(task.GetProperty("canDelete").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task CreateTask_WithBlankTitle_Returns400(string blankTitle)
+    {
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.PostAsJsonAsync("/api/tasks", new { title = blankTitle });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 }

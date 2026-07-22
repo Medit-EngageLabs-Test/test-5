@@ -1,0 +1,16 @@
+.task-form-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 20rem;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.form-error {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-error);
+  margin: 0;
+}

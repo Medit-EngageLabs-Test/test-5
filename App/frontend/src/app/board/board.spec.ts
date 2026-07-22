@@ -14,12 +14,13 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
     createdById: 'u-1',
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
+    canDelete: true,
     ...overrides,
   };
 }
 
-async function setup(tasks: Task[]) {
-  const tasksService = { list: vi.fn().mockReturnValue(of(tasks)) };
+async function setup(tasks: Task[], tasksServiceOverrides: Record<string, unknown> = {}) {
+  const tasksService = { list: vi.fn().mockReturnValue(of(tasks)), ...tasksServiceOverrides };
 
   await TestBed.configureTestingModule({
     imports: [Board],
@@ -34,7 +35,7 @@ async function setup(tasks: Task[]) {
   const column = (label: string) =>
     element.querySelector(`.board-column[aria-label="${label}"]`) as HTMLElement;
 
-  return { fixture, element, column };
+  return { fixture, element, column, tasksService };
 }
 
 describe('Board', () => {

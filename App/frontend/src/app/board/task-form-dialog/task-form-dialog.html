@@ -1,0 +1,40 @@
+<h2 mat-dialog-title>{{ dialogTitle }}</h2>
+<form [formGroup]="form" (ngSubmit)="submit()">
+  <mat-dialog-content class="task-form-content">
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Titolo</mat-label>
+      <input matInput formControlName="title" required />
+      @if (form.controls.title.invalid && form.controls.title.touched) {
+        <mat-error>Il titolo è obbligatorio.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Descrizione</mat-label>
+      <textarea matInput formControlName="description" rows="3"></textarea>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Urgenza</mat-label>
+      <mat-select formControlName="urgency">
+        @for (option of urgencyOptions; track option.value) {
+          <mat-option [value]="option.value">{{ option.label }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Scadenza</mat-label>
+      <input matInput type="date" formControlName="dueDate" />
+    </mat-form-field>
+
+    @if (errorMessage) {
+      <p class="form-error">{{ errorMessage }}</p>
+    }
+  </mat-dialog-content>
+
+  <mat-dialog-actions align="end">
+    <button type="button" mat-button (click)="cancel()">Annulla</button>
+    <button type="submit" mat-flat-button [disabled]="saving">{{ submitLabel }}</button>
+  </mat-dialog-actions>
+</form>
