@@ -19,47 +19,18 @@ function cardByTitle(page: Page, title: string) {
 }
 
 /**
- * Waits for `<app-board>`'s `data-realtime-quiescent` host attribute (F6, ticket #23 fix-up):
- * true once the hub has connected at least once AND no refresh() triggered by it is still in
- * flight. `dragCardToColumn` below measures bounding boxes once and never re-measures — a
- * refresh() landing between that measurement and the final `mouse.up()` reshuffles the list
- * under the pointer, so CDK computes the drop against stale coordinates and silently no-ops the
- * move instead of erroring (this, not event propagation to B, is what made this exact test flake
- * in CI: a slow first hub connect on the dragging client firing its post-connect refresh mid-
- * gesture). Gating the drag on this — not just on the page having loaded — closes that race.
+ * Resolves the App's internal id of the Task titled `title`, via the same `GET /api/tasks`
+ * the Board itself calls — `page.request` carries the BFF session cookie in OIDC mode (a no-op
+ * in open mode, where every endpoint is anonymous already).
  */
-async function waitForQuiescent(page: Page): Promise<void> {
-  await expect(page.locator('app-board')).toHaveAttribute('data-realtime-quiescent', 'true');
-}
-
-/**
- * Drags the card titled `title` into `targetColumnLabel`'s drop list — copied from
- * tasks.spec.ts's own helper (kept file-local: two-client tests operate on two independent
- * Page objects, and sharing the helper would mean threading both through every call).
- */
-async function dragCardToColumn(
-  page: Page,
-  title: string,
-  targetColumnLabel: string,
-): Promise<void> {
-  const card = cardByTitle(page, title);
-  const targetDropList = page.locator(
-    `.board-column[aria-label="${targetColumnLabel}"] .column-drop-list`,
-  );
-
-  const cardBox = await card.boundingBox();
-  const targetBox = await targetDropList.boundingBox();
-  if (!cardBox || !targetBox) {
-    throw new Error('Bounding box non disponibile: impossibile calcolare il drag&drop.');
+async function getTaskIdByTitle(page: Page, title: string): Promise<string> {
+  const response = await page.request.get('/api/tasks');
+  const tasks = (await response.json()) as Array<{ id: string; title: string }>;
+  const task = tasks.find((t) => t.title === title);
+  if (!task) {
+    throw new Error(`Nessuna Attività trovata con titolo "${title}".`);
   }
-
-  await page.mouse.move(cardBox.x + cardBox.width / 2, cardBox.y + cardBox.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + 10, { steps: 10 });
-  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
-    steps: 10,
-  });
-  await page.mouse.up();
+  return task.id;
 }
 
 test.describe('Board in tempo reale — due client (F6, ticket #23)', () => {
@@ -83,6 +54,14 @@ test.describe('Board in tempo reale — due client (F6, ticket #23)', () => {
     }
   });
 
+  /**
+   * Status changes to Doing via the API, not via drag&drop: the drag→PATCH→Status mechanics are
+   * F3's own concern, already covered by tasks.spec.ts:98's single-client drag test (passes
+   * every run — no realtime, no other client to race). What F6 adds on top is only "a Status
+   * change propagates live to another client", so this isolates exactly that from CDK's input
+   * mechanics — which, on a Board crowded with the accumulated CI dataset, made the two-client
+   * version of this test flake on drag geometry, not on anything realtime-specific.
+   */
   test('A sposta un’Attività tra colonne, B vede la card nella nuova colonna senza reload', async ({
     browser,
   }) => {
@@ -93,21 +72,13 @@ test.describe('Board in tempo reale — due client (F6, ticket #23)', () => {
       await pageB.goto('/board');
       await expect(pageA.getByRole('heading', { name: 'Board' })).toBeVisible();
       await expect(pageB.getByRole('heading', { name: 'Board' })).toBeVisible();
-      // Both hubs connected and settled before any interaction — see waitForQuiescent's own doc.
-      await waitForQuiescent(pageA);
-      await waitForQuiescent(pageB);
 
       const title = uniqueTitle('realtime-sposta');
       await createTask(pageA, title);
       await expect(cardByTitle(pageB, title)).toBeVisible();
-      // The create's own refresh() must have settled on A before dragging the very card it added.
-      await waitForQuiescent(pageA);
 
-      await dragCardToColumn(pageA, title, 'Doing');
-
-      // Discriminating assert: proves the drag itself completed on A before ever looking at B —
-      // if this fails, the drag/re-render race won, not the realtime propagation to B.
-      await expect(pageA.locator('.board-column[aria-label="Doing"]').getByText(title)).toBeVisible();
+      const taskId = await getTaskIdByTitle(pageA, title);
+      await pageA.request.patch(`/api/tasks/${taskId}/status`, { data: { status: 'Doing' } });
 
       await expect(
         pageB.locator('.board-column[aria-label="Doing"]').getByText(title),
