@@ -17,7 +17,8 @@ namespace App.Tests;
 /// (ticket #20): server-side validation (size/content-type whitelist), the S3 round trip via
 /// <see cref="IObjectStore"/>, and the proxied download. Also covers
 /// <c>POST /api/comments/{commentId}/attachments</c> and the Attachment cascade on Comment
-/// deletion (ticket #21).
+/// deletion (ticket #21), and <c>DELETE /api/attachments/{id}</c> — uploader-or-Moderator
+/// permissions (ticket #22).
 /// </summary>
 public class AttachmentsEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFixture<RoleAuthenticatedAppFactory>
 {
@@ -27,6 +28,13 @@ public class AttachmentsEndpointTests(RoleAuthenticatedAppFactory factory) : ICl
     {
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(RoleAuthenticatedAppFactory.RolesHeader, AppRoles.BoardModerator);
+        return client;
+    }
+
+    private HttpClient CreateAuthenticatedClientWithoutRoles()
+    {
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(RoleAuthenticatedAppFactory.RolesHeader, string.Empty);
         return client;
     }
 
@@ -382,5 +390,164 @@ public class AttachmentsEndpointTests(RoleAuthenticatedAppFactory factory) : ICl
         var objectStore = verifyScope.ServiceProvider.GetRequiredService<IObjectStore>();
         Assert.Null(await verifyDb.Attachments.FindAsync(attachmentId));
         Assert.Null(await objectStore.ReadAsync(storageKey));
+    }
+
+    // ── #22 — DELETE /api/attachments/{id}: uploader o Moderatore ───────────────
+
+    [Fact]
+    public async Task DeleteAttachment_ByItsUploader_Returns204()
+    {
+        var taskId = await SeedTaskAsync(await SeedUserAsync(), $"Attività {Guid.NewGuid()}");
+        // Resolves to the open-mode synthetic User: uploading through the API — instead of
+        // seeding the row with a random uploader — is what makes THIS caller its uploader.
+        var uploaderClient = CreateAuthenticatedClientWithoutRoles();
+        using var multipart = BuildUpload(Encoding.UTF8.GetBytes("contenuto"), "mio-file.txt", "text/plain");
+        var uploadResponse = await uploaderClient.PostAsync($"/api/tasks/{taskId}/attachments", multipart);
+        var attachmentId = (await uploadResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions))
+            .GetProperty("id").GetGuid();
+
+        var response = await uploaderClient.DeleteAsync($"/api/attachments/{attachmentId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteAttachment_ByModerator_Returns204_EvenWhenNotUploader()
+    {
+        var taskId = await SeedTaskAsync(await SeedUserAsync(), $"Attività {Guid.NewGuid()}");
+        var uploaderClient = CreateAuthenticatedClientWithoutRoles();
+        using var multipart = BuildUpload(
+            Encoding.UTF8.GetBytes("contenuto"), $"di-un-altro-{Guid.NewGuid()}.txt", "text/plain");
+        var uploadResponse = await uploaderClient.PostAsync($"/api/tasks/{taskId}/attachments", multipart);
+        var attachmentId = (await uploadResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions))
+            .GetProperty("id").GetGuid();
+        var moderatorClient = CreateAuthenticatedClient(); // carries AppRoles.BoardModerator
+
+        var response = await moderatorClient.DeleteAsync($"/api/attachments/{attachmentId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteAttachment_ByOtherAuthenticatedUser_Returns403()
+    {
+        var taskId = await SeedTaskAsync(await SeedUserAsync(), $"Attività {Guid.NewGuid()}");
+        var uploaderClient = CreateAuthenticatedClientWithoutRoles();
+        using var multipart = BuildUpload(
+            Encoding.UTF8.GetBytes("contenuto"), $"non-eliminabile-{Guid.NewGuid()}.txt", "text/plain");
+        var uploadResponse = await uploaderClient.PostAsync($"/api/tasks/{taskId}/attachments", multipart);
+        var attachmentId = (await uploadResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions))
+            .GetProperty("id").GetGuid();
+
+        try
+        {
+            // A distinct, seeded uploader means this caller (the open-mode synthetic User) is
+            // neither its uploader nor a Moderator — the same seeded-vs-API-created contrast
+            // F3/F4's own 403 tests use.
+            var seededUploaderId = await SeedUserAsync();
+            using var scope = factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var attachment = await db.Attachments.FindAsync(attachmentId);
+            attachment!.UploadedById = seededUploaderId;
+            await db.SaveChangesAsync();
+
+            var otherClient = CreateAuthenticatedClientWithoutRoles();
+            var response = await otherClient.DeleteAsync($"/api/attachments/{attachmentId}");
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        finally
+        {
+            using var scope = factory.Services.CreateScope();
+            var objectStore = scope.ServiceProvider.GetRequiredService<IObjectStore>();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var stored = await db.Attachments.FindAsync(attachmentId);
+            if (stored is not null)
+            {
+                await objectStore.DeleteAsync(stored.StorageKey);
+                db.Attachments.Remove(stored);
+                await db.SaveChangesAsync();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task DeleteAttachment_UnknownId_Returns404()
+    {
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.DeleteAsync($"/api/attachments/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteAttachment_RemovesRowAndS3Object()
+    {
+        var taskId = await SeedTaskAsync(await SeedUserAsync(), $"Attività {Guid.NewGuid()}");
+        var client = CreateAuthenticatedClient();
+        using var multipart = BuildUpload(Encoding.UTF8.GetBytes("contenuto"), "da-rimuovere.txt", "text/plain");
+        var uploadResponse = await client.PostAsync($"/api/tasks/{taskId}/attachments", multipart);
+        var attachmentId = (await uploadResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions))
+            .GetProperty("id").GetGuid();
+        string storageKey;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            storageKey = (await db.Attachments.FindAsync(attachmentId))!.StorageKey;
+        }
+
+        var response = await client.DeleteAsync($"/api/attachments/{attachmentId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        using var verifyScope = factory.Services.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var objectStore = verifyScope.ServiceProvider.GetRequiredService<IObjectStore>();
+        Assert.Null(await verifyDb.Attachments.FindAsync(attachmentId));
+        Assert.Null(await objectStore.ReadAsync(storageKey));
+    }
+
+    // ── #22 — Cascata: eliminare un'Attività elimina i suoi Allegati ────────────
+
+    [Fact]
+    public async Task DeleteTask_CascadesDirectAndCommentAttachments_RowsAndS3Objects()
+    {
+        var userId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(userId, $"Attività da eliminare {Guid.NewGuid()}");
+        var commentId = await SeedCommentAsync(taskId, userId, "Un messaggio con allegato");
+        var client = CreateAuthenticatedClient();
+
+        using var directUpload = BuildUpload(
+            Encoding.UTF8.GetBytes("diretto"), "diretto.txt", "text/plain");
+        var directResponse = await client.PostAsync($"/api/tasks/{taskId}/attachments", directUpload);
+        var directAttachmentId = (await directResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions))
+            .GetProperty("id").GetGuid();
+
+        using var commentUpload = BuildUpload(
+            Encoding.UTF8.GetBytes("su commento"), "su-commento.txt", "text/plain");
+        var commentUploadResponse = await client.PostAsync($"/api/comments/{commentId}/attachments", commentUpload);
+        var commentAttachmentId = (await commentUploadResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions))
+            .GetProperty("id").GetGuid();
+
+        string directKey;
+        string commentKey;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            directKey = (await db.Attachments.FindAsync(directAttachmentId))!.StorageKey;
+            commentKey = (await db.Attachments.FindAsync(commentAttachmentId))!.StorageKey;
+        }
+
+        var deleteResponse = await client.DeleteAsync($"/api/tasks/{taskId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        using var verifyScope = factory.Services.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var objectStore = verifyScope.ServiceProvider.GetRequiredService<IObjectStore>();
+        Assert.Null(await verifyDb.Attachments.FindAsync(directAttachmentId));
+        Assert.Null(await verifyDb.Attachments.FindAsync(commentAttachmentId));
+        Assert.Null(await objectStore.ReadAsync(directKey));
+        Assert.Null(await objectStore.ReadAsync(commentKey));
     }
 }

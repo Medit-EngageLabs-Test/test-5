@@ -12,4 +12,6 @@ export interface Attachment {
   sizeBytes: number;
   uploadedById: string;
   createdAt: string;
+  /** Server-computed (ticket #22): true for the Attachment's uploader or a Board Moderator. */
+  canDelete: boolean;
 }

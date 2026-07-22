@@ -31,4 +31,9 @@ export class AttachmentsService {
   downloadUrl(id: string): string {
     return `/api/attachments/${id}/content`;
   }
+
+  /** Deletes an Attachment (ticket #22) — 403 when the caller is neither its uploader nor a Moderator. */
+  remove(id: string): Observable<void> {
+    return this.#http.delete<void>(`/api/attachments/${id}`);
+  }
 }

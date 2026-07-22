@@ -71,7 +71,9 @@ async function setup(
   const attachmentsService = {
     list: vi.fn().mockReturnValue(of([])),
     uploadToTask: vi.fn(),
+    uploadToComment: vi.fn(),
     downloadUrl: vi.fn((id: string) => `/api/attachments/${id}/content`),
+    remove: vi.fn().mockReturnValue(of(undefined)),
     ...overrides.attachmentsServiceOverrides,
   };
   const confirmDialogService = {
@@ -274,6 +276,7 @@ describe('TaskDetailDialog', () => {
       sizeBytes: 2048,
       uploadedById: 'u-1',
       createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
     };
     const { element, attachmentsService } = await setup(
       { task },
@@ -303,6 +306,7 @@ describe('TaskDetailDialog', () => {
       sizeBytes: 512,
       uploadedById: 'u-1',
       createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
     };
     const { fixture, attachmentsService } = await setup(
       { task },
@@ -334,6 +338,7 @@ describe('TaskDetailDialog', () => {
       sizeBytes: 100,
       uploadedById: 'u-1',
       createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
     };
     const { element } = await setup(
       { task },
@@ -355,6 +360,7 @@ describe('TaskDetailDialog', () => {
       sizeBytes: 2048,
       uploadedById: 'u-1',
       createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
     };
     const { fixture, attachmentsService } = await setup(
       { task },
@@ -376,5 +382,83 @@ describe('TaskDetailDialog', () => {
 
     expect(attachmentsService.uploadToComment).toHaveBeenCalledWith('c-1', file);
     expect(attachmentsService.list).toHaveBeenCalledTimes(2); // initial load + refresh after upload
+  });
+
+  // ── #22 — Rimuovere allegati ─────────────────────────────────────────────────
+
+  it('il comando rimuovi allegato è visibile solo quando canDelete è true (ticket #22)', async () => {
+    const own = {
+      id: 'a-5',
+      taskId: 't-1',
+      commentId: null,
+      fileName: 'mio.txt',
+      contentType: 'text/plain',
+      sizeBytes: 10,
+      uploadedById: 'u-1',
+      createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
+    };
+    const notMine = { ...own, id: 'a-6', fileName: 'altrui.txt', canDelete: false };
+    const { element } = await setup(
+      { task },
+      { attachmentsServiceOverrides: { list: vi.fn().mockReturnValue(of([own, notMine])) } },
+    );
+
+    const items = Array.from(element.querySelectorAll('.attachments-section .attachment'));
+    const ownItem = items.find((item) => item.textContent?.includes('mio.txt'));
+    const notMineItem = items.find((item) => item.textContent?.includes('altrui.txt'));
+    expect(ownItem?.querySelector('[aria-label="Elimina allegato"]')).not.toBeNull();
+    expect(notMineItem?.querySelector('[aria-label="Elimina allegato"]')).toBeNull();
+  });
+
+  it('rimuovi allegato: conferma poi chiama remove e ricarica gli allegati', async () => {
+    const attachment = {
+      id: 'a-7',
+      taskId: 't-1',
+      commentId: null,
+      fileName: 'da-rimuovere.txt',
+      contentType: 'text/plain',
+      sizeBytes: 10,
+      uploadedById: 'u-1',
+      createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
+    };
+    const { element, attachmentsService, confirmDialogService, settle } = await setup(
+      { task },
+      { attachmentsServiceOverrides: { list: vi.fn().mockReturnValue(of([attachment])) } },
+    );
+
+    element.querySelector<HTMLButtonElement>('[aria-label="Elimina allegato"]')!.click();
+    await settle();
+
+    expect(confirmDialogService.confirm).toHaveBeenCalled();
+    expect(attachmentsService.remove).toHaveBeenCalledWith('a-7');
+    expect(attachmentsService.list).toHaveBeenCalledTimes(2); // initial load + refresh after delete
+  });
+
+  it('rimuovi allegato: annullare la conferma non chiama remove', async () => {
+    const attachment = {
+      id: 'a-8',
+      taskId: 't-1',
+      commentId: null,
+      fileName: 'non-rimosso.txt',
+      contentType: 'text/plain',
+      sizeBytes: 10,
+      uploadedById: 'u-1',
+      createdAt: '2026-01-01T00:00:00Z',
+      canDelete: true,
+    };
+    const { element, attachmentsService, settle } = await setup(
+      { task },
+      {
+        attachmentsServiceOverrides: { list: vi.fn().mockReturnValue(of([attachment])) },
+        confirmResult: false,
+      },
+    );
+
+    element.querySelector<HTMLButtonElement>('[aria-label="Elimina allegato"]')!.click();
+    await settle();
+
+    expect(attachmentsService.remove).not.toHaveBeenCalled();
   });
 });

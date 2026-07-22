@@ -22,7 +22,7 @@ async function openDetailPanel(page: Page, title: string): Promise<void> {
   await expect(page.getByRole('dialog')).toBeVisible();
 }
 
-test.describe('Allegati sulle Attività e sui messaggi (F5, tickets #20-#21)', () => {
+test.describe('Allegati sulle Attività e sui messaggi (F5, tickets #20-#22)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/board');
   });
@@ -109,5 +109,42 @@ test.describe('Allegati sulle Attività e sui messaggi (F5, tickets #20-#21)', (
     await dialog.getByRole('button', { name: 'Chiudi' }).click();
     await expect(dialog).toBeHidden();
     await expect(card.getByLabel('Allegati')).toContainText('1');
+  });
+
+  // ── #22 — Rimuovere un allegato ──────────────────────────────────────────────
+
+  test('rimuovere un allegato lo fa sparire e aggiorna il contatore 📎', async ({ page }) => {
+    const title = uniqueTitle('rimuovi-allegato');
+    await createTask(page, title);
+    const card = cardByTitle(page, title);
+    await openDetailPanel(page, title);
+    const dialog = page.getByRole('dialog', { name: title });
+
+    await dialog
+      .locator('.attachments-section input[type="file"]')
+      .setInputFiles({
+        name: 'da-rimuovere.txt',
+        mimeType: 'text/plain',
+        buffer: Buffer.from(`da rimuovere ${Date.now()}`),
+      });
+    await expect(dialog.getByText('da-rimuovere.txt')).toBeVisible();
+
+    // A confirm dialog opens ON TOP of the detail panel: page.getByRole('dialog') alone would
+    // match both and hit a strict-mode violation — scope each locator to its own dialog by name
+    // (lesson from F4's comments.spec.ts delete-message test).
+    const confirmDialog = page.getByRole('dialog', { name: 'Eliminare questo allegato?' });
+    await dialog
+      .locator('.attachments-section')
+      .getByRole('button', { name: 'Elimina allegato' })
+      .click();
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole('button', { name: 'Elimina', exact: true }).click();
+
+    await expect(dialog.getByText('da-rimuovere.txt')).toHaveCount(0);
+    await expect(dialog.locator('.attachments-section').getByText('Nessun allegato.')).toBeVisible();
+
+    await dialog.getByRole('button', { name: 'Chiudi' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(card.getByLabel('Allegati')).toContainText('0');
   });
 });

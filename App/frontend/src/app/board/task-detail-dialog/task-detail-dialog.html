@@ -27,6 +27,15 @@
               >
                 <mat-icon aria-hidden="true">download</mat-icon>
               </a>
+              @if (attachment.canDelete) {
+                <button
+                  mat-icon-button
+                  aria-label="Elimina allegato"
+                  (click)="confirmDeleteAttachment(attachment)"
+                >
+                  <mat-icon aria-hidden="true">delete</mat-icon>
+                </button>
+              }
             </span>
           </li>
         }
@@ -117,6 +126,16 @@
                       >{{ attachment.fileName }}</a
                     >
                     <span class="attachment-meta">({{ formatSize(attachment.sizeBytes) }})</span>
+                    @if (attachment.canDelete) {
+                      <button
+                        mat-icon-button
+                        class="comment-attach-button"
+                        aria-label="Elimina allegato"
+                        (click)="confirmDeleteAttachment(attachment)"
+                      >
+                        <mat-icon aria-hidden="true">delete</mat-icon>
+                      </button>
+                    }
                   </li>
                 }
               </ul>

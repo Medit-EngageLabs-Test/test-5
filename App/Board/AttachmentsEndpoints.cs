@@ -5,8 +5,8 @@ using Microsoft.EntityFrameworkCore;
 namespace App.Board;
 
 /// <summary>
-/// Endpoints for Attachments on Tasks (ticket #20) and Comments (ticket #21): upload, list, and
-/// proxied download.
+/// Endpoints for Attachments on Tasks (ticket #20) and Comments (ticket #21): upload, list,
+/// proxied download, and removal (ticket #22).
 /// </summary>
 public static class AttachmentsEndpoints
 {
@@ -34,6 +34,7 @@ public static class AttachmentsEndpoints
         // DeleteComment/DeleteTask address their resource directly.
         var attachmentsGroup = app.MapGroup("/api/attachments").WithTags("Board");
         attachmentsGroup.MapGet("/{id:guid}/content", DownloadAttachment);
+        attachmentsGroup.MapDelete("/{id:guid}", DeleteAttachment);
     }
 
     private static readonly Action<ILogger, Guid, int, Exception?> _attachmentsListed =
@@ -54,10 +55,18 @@ public static class AttachmentsEndpoints
             new EventId(1113, "AttachmentS3DeleteFailed"),
             "Attachment S3 object could not be deleted (best-effort) — key={StorageKey}");
 
+    private static readonly Action<ILogger, Guid, Exception?> _attachmentDeleted =
+        LoggerMessage.Define<Guid>(
+            LogLevel.Information,
+            new EventId(1112, "AttachmentDeleted"),
+            "Attachment deleted — id={AttachmentId}");
+
     /// <summary>Returns every Attachment of a Task, in upload order.</summary>
     private static async System.Threading.Tasks.Task<IResult> ListAttachments(
         Guid taskId,
         AppDbContext db,
+        IUserProvisioningService userProvisioning,
+        ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
     {
         var taskExists = await db.Tasks.AnyAsync(t => t.Id == taskId);
@@ -71,8 +80,11 @@ public static class AttachmentsEndpoints
             .OrderBy(a => a.CreatedAt)
             .ToListAsync();
 
+        var currentUser = await userProvisioning.GetOrCreateCurrentUserAsync(user);
+        var isModerator = user.IsInRole(AppRoles.BoardModerator);
+
         _attachmentsListed(logger, taskId, attachments.Count, null);
-        return Results.Ok(attachments.Select(AttachmentResponse.From));
+        return Results.Ok(attachments.Select(a => ToResponse(a, currentUser.Id, isModerator)));
     }
 
     /// <summary>Uploads a file directly to a Task (ticket #20): validates content type and size
@@ -156,7 +168,11 @@ public static class AttachmentsEndpoints
         await db.SaveChangesAsync();
 
         _attachmentUploaded(logger, attachment.Id, taskId, null);
-        return Results.Created($"/api/attachments/{attachment.Id}/content", AttachmentResponse.From(attachment));
+        // The uploader can always delete their own just-uploaded Attachment — no need to
+        // re-resolve the moderator check ListAttachments performs for arbitrary Attachments.
+        return Results.Created(
+            $"/api/attachments/{attachment.Id}/content",
+            AttachmentResponse.From(attachment, canDelete: true));
     }
 
     /// <summary>Downloads an Attachment's bytes, proxied from the storage capability with the
@@ -184,10 +200,57 @@ public static class AttachmentsEndpoints
     }
 
     /// <summary>
+    /// Deletes an Attachment (ticket #22) — allowed to its uploader or to
+    /// <see cref="AppRoles.BoardModerator"/>, mirroring F3/F4's delete endpoints. Imperative,
+    /// resource-based check on purpose: <c>RequireRole</c>/policy-based authorization cannot
+    /// express "the caller owns this specific row OR holds a role", so it is invisible to
+    /// <c>EndpointRolesAlignmentTests</c> — verified by hand instead (AGENT-CHECKLIST.md §4).
+    /// Removes the S3 object best-effort before the row, so a failed object delete never blocks
+    /// the row from going away.
+    /// </summary>
+    private static async System.Threading.Tasks.Task<IResult> DeleteAttachment(
+        Guid id,
+        AppDbContext db,
+        IObjectStore objectStore,
+        IUserProvisioningService userProvisioning,
+        ClaimsPrincipal user,
+        ILoggerFactory loggerFactory)
+    {
+        var attachment = await db.Attachments.FindAsync(id);
+        if (attachment is null)
+            return Results.NotFound();
+
+        var currentUser = await userProvisioning.GetOrCreateCurrentUserAsync(user);
+        var isUploader = attachment.UploadedById == currentUser.Id;
+        var isModerator = user.IsInRole(AppRoles.BoardModerator);
+
+        if (!isUploader && !isModerator)
+            return Results.Forbid();
+
+        var logger = loggerFactory.CreateLogger(LogCategory);
+        await DeleteStorageObjectsBestEffortAsync([attachment.StorageKey], objectStore, logger);
+
+        db.Attachments.Remove(attachment);
+        await db.SaveChangesAsync();
+
+        _attachmentDeleted(logger, attachment.Id, null);
+        return Results.NoContent();
+    }
+
+    /// <summary>Projects an <see cref="Attachment"/> plus the caller-specific
+    /// <see cref="AttachmentResponse.CanDelete"/> fact (ticket #22: uploader or Moderator).</summary>
+    private static AttachmentResponse ToResponse(Attachment attachment, Guid currentUserId, bool isModerator)
+    {
+        var isUploader = attachment.UploadedById == currentUserId;
+        return AttachmentResponse.From(attachment, canDelete: isUploader || isModerator);
+    }
+
+    /// <summary>
     /// Deletes each of <paramref name="storageKeys"/> from the storage capability, best-effort:
     /// a failure on one key is logged and skipped rather than raised, so it never blocks the
     /// caller's own row deletion. Shared by <see cref="CommentsEndpoints.DeleteComment"/>'s
-    /// cascade (ticket #21) and, in a later ticket, <see cref="TasksEndpoints.DeleteTask"/>'s.
+    /// cascade (ticket #21), <see cref="TasksEndpoints.DeleteTask"/>'s (ticket #22), and this
+    /// class's own <see cref="DeleteAttachment"/>.
     /// </summary>
     internal static async System.Threading.Tasks.Task DeleteStorageObjectsBestEffortAsync(
         IEnumerable<string> storageKeys,

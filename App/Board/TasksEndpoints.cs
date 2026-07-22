@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using App.Storage;
 using Microsoft.EntityFrameworkCore;
 
 namespace App.Board;
@@ -220,9 +221,18 @@ public static class TasksEndpoints
     /// owns this specific row OR holds a role", so it is invisible to
     /// <c>EndpointRolesAlignmentTests</c> — verified by hand instead (AGENT-CHECKLIST.md §4).
     /// </summary>
+    /// <remarks>
+    /// Ticket #22 cascade: deleting a Task cascades its Comments and all its Attachments —
+    /// direct ones and its Comments' — at the row level via the FK (AppDbContext), but EF never
+    /// touches the S3 objects behind those Attachment rows. This handler collects every affected
+    /// StorageKey — a single query by TaskId covers both direct and Comment Attachments, since
+    /// TaskId is always set (ticket #21) — and deletes each object best-effort *before* removing
+    /// the Task, so the objects are gone by the time the rows disappear underneath them.
+    /// </remarks>
     private static async System.Threading.Tasks.Task<IResult> DeleteTask(
         Guid id,
         AppDbContext db,
+        IObjectStore objectStore,
         IUserProvisioningService userProvisioning,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
@@ -238,10 +248,17 @@ public static class TasksEndpoints
         if (!isCreator && !isModerator)
             return Results.Forbid();
 
+        var logger = loggerFactory.CreateLogger(LogCategory);
+
+        var storageKeys = await db.Attachments
+            .Where(a => a.TaskId == id)
+            .Select(a => a.StorageKey)
+            .ToListAsync();
+        await AttachmentsEndpoints.DeleteStorageObjectsBestEffortAsync(storageKeys, objectStore, logger);
+
         db.Tasks.Remove(task);
         await db.SaveChangesAsync();
 
-        var logger = loggerFactory.CreateLogger(LogCategory);
         _taskDeleted(logger, task.Id, null);
         return Results.NoContent();
     }

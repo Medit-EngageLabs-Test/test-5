@@ -200,6 +200,31 @@ export class TaskDetailDialog {
     });
   }
 
+  /**
+   * Confirms then deletes an Attachment (ticket #22) — the remove command itself is only ever
+   * rendered when `attachment.canDelete` (uploader or Board Moderator).
+   */
+  protected async confirmDeleteAttachment(attachment: Attachment): Promise<void> {
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Eliminare questo allegato?',
+      message: `«${attachment.fileName}» sarà eliminato definitivamente.`,
+      confirmLabel: 'Elimina',
+      danger: true,
+    });
+    if (!confirmed) return;
+
+    this.attachmentsService.remove(attachment.id).subscribe({
+      next: () => {
+        this.refresh();
+        this.snackBar.open('Allegato eliminato.', 'Chiudi', { duration: SNACK_BAR_DURATION_MS });
+      },
+      error: () =>
+        this.snackBar.open('Impossibile eliminare l’allegato.', 'Chiudi', {
+          duration: SNACK_BAR_DURATION_MS,
+        }),
+    });
+  }
+
   protected submit(): void {
     if (this.sending) return;
     if (this.form.invalid) {
