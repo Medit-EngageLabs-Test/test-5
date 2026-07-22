@@ -20,6 +20,7 @@ public static class TasksEndpoints
         // imperative, resource-based check that RequireRole cannot express — see its own comment.
         group.MapGet("/", ListTasks);
         group.MapPost("/", CreateTask);
+        group.MapPut("/{id:guid}", UpdateTask);
     }
 
     private static readonly Action<ILogger, int, Exception?> _tasksListed =
@@ -33,6 +34,12 @@ public static class TasksEndpoints
             LogLevel.Information,
             new EventId(1102, "TaskCreated"),
             "Task created — id={TaskId}");
+
+    private static readonly Action<ILogger, Guid, Exception?> _taskUpdated =
+        LoggerMessage.Define<Guid>(
+            LogLevel.Information,
+            new EventId(1103, "TaskUpdated"),
+            "Task updated — id={TaskId}");
 
     /// <summary>
     /// Returns every Task ordered per ADR-0002: Urgency (High→Low), then DueDate ascending
@@ -98,5 +105,41 @@ public static class TasksEndpoints
         // The creator can always delete their own just-created Task — no need to re-resolve
         // the moderator/creator check that ListTasks/UpdateTask perform for arbitrary Tasks.
         return Results.Created($"/api/tasks/{task.Id}", TaskResponse.From(task, canDelete: true));
+    }
+
+    /// <summary>
+    /// Edits a Task's title/description/urgency/due date (ticket #15) — Status is untouched here,
+    /// see <see cref="UpdateTaskStatus"/>. Allowed to any authenticated User, not just the creator.
+    /// </summary>
+    private static async System.Threading.Tasks.Task<IResult> UpdateTask(
+        Guid id,
+        UpdateTaskRequest request,
+        AppDbContext db,
+        IUserProvisioningService userProvisioning,
+        ClaimsPrincipal user,
+        ILoggerFactory loggerFactory)
+    {
+        if (string.IsNullOrWhiteSpace(request.Title))
+            return Results.BadRequest(new { error = "Title is required." });
+
+        var task = await db.Tasks.FindAsync(id);
+        if (task is null)
+            return Results.NotFound();
+
+        var logger = loggerFactory.CreateLogger(LogCategory);
+
+        task.Title = request.Title.Trim();
+        task.Description = request.Description;
+        task.Urgency = request.Urgency;
+        task.DueDate = request.DueDate;
+        task.UpdatedAt = DateTime.UtcNow;
+
+        await db.SaveChangesAsync();
+
+        var currentUser = await userProvisioning.GetOrCreateCurrentUserAsync(user);
+        var canDelete = user.IsInRole(AppRoles.BoardModerator) || task.CreatedById == currentUser.Id;
+
+        _taskUpdated(logger, task.Id, null);
+        return Results.Ok(TaskResponse.From(task, canDelete));
     }
 }

@@ -22,6 +22,10 @@ async function createTask(page: Page, title: string): Promise<void> {
   await expect(page.getByRole('dialog')).toBeHidden();
 }
 
+function cardByTitle(page: Page, title: string) {
+  return page.locator('.task-card', { hasText: title });
+}
+
 test.describe('Attività — creare, modificare, spostare, eliminare (F3)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/board');
@@ -46,5 +50,22 @@ test.describe('Attività — creare, modificare, spostare, eliminare (F3)', () =
 
     await expect(page.getByRole('dialog')).toBeVisible();
     await expect(page.getByText('Il titolo è obbligatorio.')).toBeVisible();
+  });
+
+  // ── #15 — Modificare un'Attività ────────────────────────────────────────────
+
+  test("modificare un'Attività ne aggiorna la card", async ({ page }) => {
+    const originalTitle = uniqueTitle('modifica-originale');
+    const updatedTitle = uniqueTitle('modifica-aggiornata');
+    await createTask(page, originalTitle);
+
+    await cardByTitle(page, originalTitle).getByRole('button', { name: 'Modifica Attività' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.getByLabel('Titolo').fill(updatedTitle);
+    await page.getByRole('button', { name: 'Salva' }).click();
+    await expect(page.getByRole('dialog')).toBeHidden();
+
+    await expect(page.getByText(updatedTitle)).toBeVisible();
+    await expect(page.getByText(originalTitle)).toHaveCount(0);
   });
 });

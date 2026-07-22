@@ -88,15 +88,24 @@ export class Board {
 
   /** Opens the create dialog (ticket #14). */
   protected openCreateDialog(): void {
+    this.openTaskForm({ mode: 'create' }, 'Attività creata.');
+  }
+
+  /** Opens the same form pre-filled for editing (ticket #15). */
+  protected openEditDialog(task: Task): void {
+    this.openTaskForm({ mode: 'edit', task }, 'Attività aggiornata.');
+  }
+
+  private openTaskForm(data: TaskFormDialogData, successMessage: string): void {
     const dialogRef = this.#dialog.open<TaskFormDialog, TaskFormDialogData, boolean>(TaskFormDialog, {
-      data: { mode: 'create' },
+      data,
       width: '480px',
     });
 
     dialogRef.afterClosed().subscribe((saved) => {
       if (!saved) return;
       this.refresh();
-      this.#snackBar.open('Attività creata.', 'Chiudi', { duration: SNACK_BAR_DURATION_MS });
+      this.#snackBar.open(successMessage, 'Chiudi', { duration: SNACK_BAR_DURATION_MS });
     });
   }
 }

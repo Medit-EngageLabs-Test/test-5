@@ -1,6 +1,7 @@
-import { Component, ChangeDetectionStrategy, computed, input } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, input, output } from '@angular/core';
 import { MatCard, MatCardContent } from '@angular/material/card';
 import { MatIcon } from '@angular/material/icon';
+import { MatIconButton } from '@angular/material/button';
 import { Task } from '../task.model';
 import { URGENCY_LABELS } from '../urgency';
 
@@ -14,13 +15,16 @@ function today(): Date {
 /** A single Task card: title, urgency badge, due date, comment/attachment counters. */
 @Component({
   selector: 'app-task-card',
-  imports: [MatCard, MatCardContent, MatIcon],
+  imports: [MatCard, MatCardContent, MatIcon, MatIconButton],
   templateUrl: './task-card.html',
   styleUrl: './task-card.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TaskCard {
   readonly task = input.required<Task>();
+
+  /** Emitted when the edit command is activated — allowed to any authenticated User (ticket #15). */
+  readonly editRequested = output<void>();
 
   protected readonly urgencyLabel = computed(() => URGENCY_LABELS[this.task().urgency]);
 
@@ -48,4 +52,11 @@ export class TaskCard {
   // do not exist as entities yet (CONTEXT.md), wired up in a later feature.
   protected readonly commentCount = 0;
   protected readonly attachmentCount = 0;
+
+  // stopPropagation: the card will later sit inside a cdkDrag wrapper (ticket #16) — without
+  // it, pressing this button could be interpreted as the start of a drag gesture.
+  protected onEditClick(event: Event): void {
+    event.stopPropagation();
+    this.editRequested.emit();
+  }
 }

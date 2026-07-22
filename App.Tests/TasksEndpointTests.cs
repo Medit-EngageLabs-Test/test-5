@@ -183,4 +183,67 @@ public class TasksEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFix
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    // ── #15 — Modificare un'Attività ────────────────────────────────────────────
+
+    [Fact]
+    public async Task UpdateTask_ReplacesFieldsAndBumpsUpdatedAt()
+    {
+        var userId = await SeedUserAsync();
+        var createdAt = DateTime.UtcNow.AddDays(-1);
+        var taskId = await SeedTaskAsync(userId, "Titolo originale", App.Board.Urgency.Low, null, createdAt);
+        var client = CreateAuthenticatedClient();
+        var newTitle = $"Titolo aggiornato {Guid.NewGuid()}";
+
+        var response = await client.PutAsJsonAsync($"/api/tasks/{taskId}", new
+        {
+            title = newTitle,
+            description = "Nuova descrizione",
+            urgency = "High",
+            dueDate = "2026-12-31",
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var task = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        Assert.Equal(newTitle, task.GetProperty("title").GetString());
+        Assert.Equal("Nuova descrizione", task.GetProperty("description").GetString());
+        Assert.Equal("High", task.GetProperty("urgency").GetString());
+        Assert.Equal("2026-12-31", task.GetProperty("dueDate").GetString());
+        var updatedAt = task.GetProperty("updatedAt").GetDateTime();
+        Assert.True(updatedAt > createdAt);
+    }
+
+    [Fact]
+    public async Task UpdateTask_WithBlankTitle_Returns400()
+    {
+        var userId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(userId, "Titolo", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.PutAsJsonAsync($"/api/tasks/{taskId}", new
+        {
+            title = "   ",
+            description = (string?)null,
+            urgency = "Medium",
+            dueDate = (string?)null,
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateTask_UnknownId_Returns404()
+    {
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.PutAsJsonAsync($"/api/tasks/{Guid.NewGuid()}", new
+        {
+            title = "Non esiste",
+            description = (string?)null,
+            urgency = "Medium",
+            dueDate = (string?)null,
+        });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
 }

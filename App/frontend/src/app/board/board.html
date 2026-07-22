@@ -14,7 +14,7 @@
         <p class="empty-state">Nessuna Attività qui.</p>
       } @else {
         @for (task of tasksFor(column.status); track task.id) {
-          <app-task-card [task]="task" />
+          <app-task-card [task]="task" (editRequested)="openEditDialog(task)" />
         }
       }
 

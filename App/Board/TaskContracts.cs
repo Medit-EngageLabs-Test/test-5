@@ -5,6 +5,10 @@ namespace App.Board;
 /// omitted (CONTEXT.md "Urgenza").</summary>
 public record CreateTaskRequest(string Title, string? Description, Urgency? Urgency, DateOnly? DueDate);
 
+/// <summary>Body of <c>PUT /api/tasks/{id}</c> (ticket #15): a full field replacement except
+/// <see cref="Status"/>, which only <c>PATCH /api/tasks/{id}/status</c> changes.</summary>
+public record UpdateTaskRequest(string Title, string? Description, Urgency Urgency, DateOnly? DueDate);
+
 /// <summary>
 /// Wire shape of a Task, projected instead of serializing the entity directly so
 /// <see cref="CanDelete"/> — a per-viewer, resource-based fact (ticket #17: creator or

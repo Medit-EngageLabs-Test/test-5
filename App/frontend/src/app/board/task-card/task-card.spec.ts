@@ -66,4 +66,16 @@ describe('TaskCard', () => {
     expect(element.querySelector('[aria-label="Commenti"]')?.textContent).toContain('0');
     expect(element.querySelector('[aria-label="Allegati"]')?.textContent).toContain('0');
   });
+
+  it('il comando modifica è sempre visibile ed emette editRequested', async () => {
+    const { fixture, element } = await setup(baseTask);
+    const editEmitted = vi.fn();
+    fixture.componentInstance.editRequested.subscribe(editEmitted);
+
+    const editButton = element.querySelector<HTMLButtonElement>('[aria-label="Modifica Attività"]');
+    expect(editButton).not.toBeNull();
+    editButton!.click();
+
+    expect(editEmitted).toHaveBeenCalledTimes(1);
+  });
 });
