@@ -12,6 +12,7 @@ const baseTask: Task = {
   createdById: 'u-1',
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
+  canDelete: true,
 };
 
 async function setup(task: Task) {
@@ -64,5 +65,37 @@ describe('TaskCard', () => {
 
     expect(element.querySelector('[aria-label="Commenti"]')?.textContent).toContain('0');
     expect(element.querySelector('[aria-label="Allegati"]')?.textContent).toContain('0');
+  });
+
+  it('il comando modifica è sempre visibile ed emette editRequested', async () => {
+    const { fixture, element } = await setup(baseTask);
+    const editEmitted = vi.fn();
+    fixture.componentInstance.editRequested.subscribe(editEmitted);
+
+    const editButton = element.querySelector<HTMLButtonElement>('[aria-label="Modifica Attività"]');
+    expect(editButton).not.toBeNull();
+    editButton!.click();
+
+    expect(editEmitted).toHaveBeenCalledTimes(1);
+  });
+
+  it('il comando elimina è visibile quando canDelete è true ed emette deleteRequested', async () => {
+    const { fixture, element } = await setup({ ...baseTask, canDelete: true });
+    const deleteEmitted = vi.fn();
+    fixture.componentInstance.deleteRequested.subscribe(deleteEmitted);
+
+    const deleteButton = element.querySelector<HTMLButtonElement>(
+      '[aria-label="Elimina Attività"]',
+    );
+    expect(deleteButton).not.toBeNull();
+    deleteButton!.click();
+
+    expect(deleteEmitted).toHaveBeenCalledTimes(1);
+  });
+
+  it('il comando elimina è nascosto quando canDelete è false (ticket #17)', async () => {
+    const { element } = await setup({ ...baseTask, canDelete: false });
+
+    expect(element.querySelector('[aria-label="Elimina Attività"]')).toBeNull();
   });
 });

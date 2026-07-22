@@ -19,4 +19,27 @@ export interface Task {
   createdById: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Server-computed: true only for the Task's creator or a Board Moderator (ticket #17).
+   * `createdById` is the App's internal User id, not the signed-in user's Entra `oid`, so the
+   * frontend cannot derive this itself — it only ever reads this flag to show/hide the delete
+   * command.
+   */
+  canDelete: boolean;
+}
+
+/** Body of `POST /api/tasks` (ticket #14): only `title` is required. */
+export interface CreateTaskRequest {
+  title: string;
+  description: string | null;
+  urgency: TaskUrgency | null;
+  dueDate: string | null;
+}
+
+/** Body of `PUT /api/tasks/{id}` (ticket #15): a full field replacement except `status`. */
+export interface UpdateTaskRequest {
+  title: string;
+  description: string | null;
+  urgency: TaskUrgency;
+  dueDate: string | null;
 }

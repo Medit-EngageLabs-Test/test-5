@@ -27,6 +27,14 @@ export default defineConfig({
   /* Maximum time one test can run */
   timeout: 30_000,
 
+  /* The Board is a single, shared, global entity (CONTEXT.md) — every test reads and writes the
+   * SAME rows through the SAME running backend, unlike a typical app where each test gets its own
+   * isolated fixture. Since F3 (tickets #14-#17) mutations are now observable across files, tests
+   * must run one at a time, in one worker: parallel workers would race writes from one file (e.g.
+   * a Task created in tasks.spec.ts) against reads in another (e.g. board.spec.ts's empty-state
+   * assertion), each requiring the DB to still be in the state it started in. */
+  workers: 1,
+
   /* Reporter: always list (console) + HTML (file).
    * HTML is generated even in CI so the artifact upload has something to show
    * when tests fail — traces and screenshots are embedded in the report. */

@@ -1,14 +1,9 @@
-import { Component, ChangeDetectionStrategy, computed, input } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, input, output } from '@angular/core';
 import { MatCard, MatCardContent } from '@angular/material/card';
 import { MatIcon } from '@angular/material/icon';
-import { Task, TaskUrgency } from '../task.model';
-
-/** Italian display label for each Urgency value (CONTEXT.md "Urgenza"). */
-const URGENCY_LABELS: Record<TaskUrgency, string> = {
-  Low: 'Bassa',
-  Medium: 'Media',
-  High: 'Alta',
-};
+import { MatIconButton } from '@angular/material/button';
+import { Task } from '../task.model';
+import { URGENCY_LABELS } from '../urgency';
 
 /** Today at midnight, local time — DueDate carries no time component. */
 function today(): Date {
@@ -20,13 +15,19 @@ function today(): Date {
 /** A single Task card: title, urgency badge, due date, comment/attachment counters. */
 @Component({
   selector: 'app-task-card',
-  imports: [MatCard, MatCardContent, MatIcon],
+  imports: [MatCard, MatCardContent, MatIcon, MatIconButton],
   templateUrl: './task-card.html',
   styleUrl: './task-card.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TaskCard {
   readonly task = input.required<Task>();
+
+  /** Emitted when the edit command is activated — allowed to any authenticated User (ticket #15). */
+  readonly editRequested = output<void>();
+
+  /** Emitted when the delete command is activated — only rendered when `task().canDelete` (ticket #17). */
+  readonly deleteRequested = output<void>();
 
   protected readonly urgencyLabel = computed(() => URGENCY_LABELS[this.task().urgency]);
 
@@ -54,4 +55,16 @@ export class TaskCard {
   // do not exist as entities yet (CONTEXT.md), wired up in a later feature.
   protected readonly commentCount = 0;
   protected readonly attachmentCount = 0;
+
+  // stopPropagation: the card sits inside a cdkDrag wrapper (ticket #16) — without it, pressing
+  // these buttons could be interpreted as the start of a drag gesture by the CDK listeners above.
+  protected onEditClick(event: Event): void {
+    event.stopPropagation();
+    this.editRequested.emit();
+  }
+
+  protected onDeleteClick(event: Event): void {
+    event.stopPropagation();
+    this.deleteRequested.emit();
+  }
 }

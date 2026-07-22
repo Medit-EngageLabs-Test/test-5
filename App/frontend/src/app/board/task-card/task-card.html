@@ -15,6 +15,16 @@
     <div class="task-card-footer">
       <span class="counter" aria-label="Commenti">💬 {{ commentCount }}</span>
       <span class="counter" aria-label="Allegati">📎 {{ attachmentCount }}</span>
+      <span class="task-card-actions">
+        <button mat-icon-button aria-label="Modifica Attività" (click)="onEditClick($event)">
+          <mat-icon aria-hidden="true">edit</mat-icon>
+        </button>
+        @if (task().canDelete) {
+          <button mat-icon-button aria-label="Elimina Attività" (click)="onDeleteClick($event)">
+            <mat-icon aria-hidden="true">delete</mat-icon>
+          </button>
+        }
+      </span>
     </div>
   </mat-card-content>
 </mat-card>

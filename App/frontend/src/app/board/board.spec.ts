@@ -1,8 +1,25 @@
 import { TestBed } from '@angular/core/testing';
+import { CdkDragDrop } from '@angular/cdk/drag-drop';
 import { of } from 'rxjs';
 import { Board } from './board';
 import { TasksService } from './tasks';
 import { Task, TaskStatus } from './task.model';
+
+/**
+ * Reaches Board's protected onDrop() — bracket notation is TypeScript's documented escape
+ * hatch for private/protected members, the same pattern task-form-dialog.spec.ts uses for `form`.
+ */
+function callOnDrop(
+  fixture: { componentInstance: Board },
+  event: CdkDragDrop<Task[]>,
+  status: TaskStatus,
+): void {
+  (
+    fixture.componentInstance as unknown as {
+      onDrop: (e: CdkDragDrop<Task[]>, s: TaskStatus) => void;
+    }
+  ).onDrop(event, status);
+}
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
@@ -14,12 +31,13 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
     createdById: 'u-1',
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
+    canDelete: true,
     ...overrides,
   };
 }
 
-async function setup(tasks: Task[]) {
-  const tasksService = { list: vi.fn().mockReturnValue(of(tasks)) };
+async function setup(tasks: Task[], tasksServiceOverrides: Record<string, unknown> = {}) {
+  const tasksService = { list: vi.fn().mockReturnValue(of(tasks)), ...tasksServiceOverrides };
 
   await TestBed.configureTestingModule({
     imports: [Board],
@@ -34,7 +52,7 @@ async function setup(tasks: Task[]) {
   const column = (label: string) =>
     element.querySelector(`.board-column[aria-label="${label}"]`) as HTMLElement;
 
-  return { fixture, element, column };
+  return { fixture, element, column, tasksService };
 }
 
 describe('Board', () => {
@@ -118,5 +136,45 @@ describe('Board', () => {
 
     expect(column('Done').textContent).not.toContain('Vecchissima');
     expect(column('Done').querySelectorAll('app-task-card').length).toBe(50);
+  });
+
+  // ── #16 — Spostare tra colonne: drop abilitato solo tra colonne (ADR-0002) ─────
+
+  it('il drop tra colonne diverse chiama updateStatus con il nuovo Status', async () => {
+    const task = makeTask({ id: '1', status: 'ToDo' });
+    const updateStatus = vi.fn().mockReturnValue(of({ ...task, status: 'Doing' }));
+    const { fixture, tasksService } = await setup([task], { updateStatus });
+
+    callOnDrop(
+      fixture,
+      {
+        previousContainer: { id: 'todo-list' },
+        container: { id: 'doing-list' },
+        item: { data: task },
+      } as unknown as CdkDragDrop<Task[]>,
+      'Doing',
+    );
+
+    expect(updateStatus).toHaveBeenCalledWith('1', 'Doing');
+    expect(tasksService.list).toHaveBeenCalledTimes(2); // initial load + refresh() after the move
+  });
+
+  it('il drop nella stessa colonna non chiama updateStatus — nessun riordino intra-colonna', async () => {
+    const task = makeTask({ id: '1', status: 'ToDo' });
+    const updateStatus = vi.fn();
+    const { fixture } = await setup([task], { updateStatus });
+
+    const sameList = { id: 'todo-list' };
+    callOnDrop(
+      fixture,
+      {
+        previousContainer: sameList,
+        container: sameList,
+        item: { data: task },
+      } as unknown as CdkDragDrop<Task[]>,
+      'ToDo',
+    );
+
+    expect(updateStatus).not.toHaveBeenCalled();
   });
 });

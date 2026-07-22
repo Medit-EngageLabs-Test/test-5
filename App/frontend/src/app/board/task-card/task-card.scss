@@ -60,6 +60,7 @@
 
 .task-card-footer {
   display: flex;
+  align-items: center;
   gap: 1rem;
   margin-top: 0.5rem;
 }
@@ -67,4 +68,22 @@
 .counter {
   font: var(--mat-sys-body-small);
   color: var(--mat-sys-on-surface-variant);
+}
+
+.task-card-actions {
+  display: flex;
+  margin-left: auto;
+
+  // 40px (mat-icon-button default) instead of the 48px touch target: cards are dense by design.
+  button {
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+
+    mat-icon {
+      font-size: 1.125rem;
+      width: 1.125rem;
+      height: 1.125rem;
+    }
+  }
 }
