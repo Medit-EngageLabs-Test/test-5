@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { HubConnectionBuilder, type HubConnection } from '@microsoft/signalr';
 import { Subject } from 'rxjs';
 
@@ -56,6 +56,17 @@ export class BoardRealtimeService {
   private readonly attachmentAddedSubject = new Subject<AttachmentRealtimeEvent>();
   private readonly attachmentRemovedSubject = new Subject<AttachmentRealtimeEvent>();
   private readonly realignedSubject = new Subject<void>();
+  private readonly connectedSignal = signal(false);
+
+  /**
+   * True once the hub connection has been established at least once. Exposed as a signal (not
+   * just an event) so a consumer can gate an action on the current state, not only future
+   * transitions — the Board uses it (with its own quiescent-refresh state) to expose a
+   * `data-realtime-quiescent` host attribute the two-client E2E waits on before dragging: without
+   * it, a slow first connect can fire `realigned$`'s refresh mid-gesture, on the exact same list
+   * CDK is tracking.
+   */
+  readonly connected = this.connectedSignal.asReadonly();
 
   /** A Task was created. */
   readonly taskCreated$ = this.taskCreatedSubject.asObservable();
@@ -115,6 +126,7 @@ export class BoardRealtimeService {
   private async connect(): Promise<void> {
     try {
       await this.connection.start();
+      this.connectedSignal.set(true);
       this.realignedSubject.next();
     } catch {
       setTimeout(() => void this.connect(), FIRST_CONNECT_RETRY_DELAY_MS);

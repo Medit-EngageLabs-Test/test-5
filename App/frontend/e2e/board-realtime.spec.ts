@@ -19,6 +19,20 @@ function cardByTitle(page: Page, title: string) {
 }
 
 /**
+ * Waits for `<app-board>`'s `data-realtime-quiescent` host attribute (F6, ticket #23 fix-up):
+ * true once the hub has connected at least once AND no refresh() triggered by it is still in
+ * flight. `dragCardToColumn` below measures bounding boxes once and never re-measures — a
+ * refresh() landing between that measurement and the final `mouse.up()` reshuffles the list
+ * under the pointer, so CDK computes the drop against stale coordinates and silently no-ops the
+ * move instead of erroring (this, not event propagation to B, is what made this exact test flake
+ * in CI: a slow first hub connect on the dragging client firing its post-connect refresh mid-
+ * gesture). Gating the drag on this — not just on the page having loaded — closes that race.
+ */
+async function waitForQuiescent(page: Page): Promise<void> {
+  await expect(page.locator('app-board')).toHaveAttribute('data-realtime-quiescent', 'true');
+}
+
+/**
  * Drags the card titled `title` into `targetColumnLabel`'s drop list — copied from
  * tasks.spec.ts's own helper (kept file-local: two-client tests operate on two independent
  * Page objects, and sharing the helper would mean threading both through every call).
@@ -79,12 +93,21 @@ test.describe('Board in tempo reale — due client (F6, ticket #23)', () => {
       await pageB.goto('/board');
       await expect(pageA.getByRole('heading', { name: 'Board' })).toBeVisible();
       await expect(pageB.getByRole('heading', { name: 'Board' })).toBeVisible();
+      // Both hubs connected and settled before any interaction — see waitForQuiescent's own doc.
+      await waitForQuiescent(pageA);
+      await waitForQuiescent(pageB);
 
       const title = uniqueTitle('realtime-sposta');
       await createTask(pageA, title);
       await expect(cardByTitle(pageB, title)).toBeVisible();
+      // The create's own refresh() must have settled on A before dragging the very card it added.
+      await waitForQuiescent(pageA);
 
       await dragCardToColumn(pageA, title, 'Doing');
+
+      // Discriminating assert: proves the drag itself completed on A before ever looking at B —
+      // if this fails, the drag/re-render race won, not the realtime propagation to B.
+      await expect(pageA.locator('.board-column[aria-label="Doing"]').getByText(title)).toBeVisible();
 
       await expect(
         pageB.locator('.board-column[aria-label="Doing"]').getByText(title),

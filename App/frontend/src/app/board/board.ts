@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { merge } from 'rxjs';
 import { CdkDrag, CdkDragDrop, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
@@ -43,6 +43,9 @@ const SNACK_BAR_DURATION_MS = 3000;
   templateUrl: './board.html',
   styleUrl: './board.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // Test-observability hook only (F6, ticket #23): no visual/behavioral effect. The two-client
+  // E2E waits for this before dragging on a client — see quiescent's own doc for why.
+  host: { '[attr.data-realtime-quiescent]': 'quiescent()' },
 })
 export class Board {
   readonly #tasksService = inject(TasksService);
@@ -59,6 +62,21 @@ export class Board {
 
   // How many Done Tasks are currently visible — "mostra altre" grows it by DONE_PAGE_SIZE.
   protected readonly doneVisibleCount = signal(DONE_PAGE_SIZE);
+
+  // True while a refresh() GET is in flight — combined with the hub's own connected() below into
+  // quiescent(), which the `data-realtime-quiescent` host attribute exposes.
+  private readonly refreshing = signal(false);
+
+  /**
+   * True once the hub has connected at least once AND no refresh() is in flight (F6, ticket #23):
+   * a two-client E2E dragging on a client while this is false risks the drop landing on stale,
+   * about-to-be-replaced bounding boxes — a slow first hub connect firing realigned$'s refresh
+   * mid-gesture reshuffles the whole list underneath the pointer, at which point CDK computes the
+   * drop against coordinates that no longer match anything, silently no-opping the move instead
+   * of erroring. `track task.id` (board.html) already keeps each card's own DOM node/component
+   * stable across such a refresh — this is about the *positions* shifting, not nodes being torn.
+   */
+  protected readonly quiescent = computed(() => this.#realtime.connected() && !this.refreshing());
 
   /**
    * Loads the Board's Tasks on construction, then keeps it live (F6, ticket #23): every Task
@@ -113,7 +131,14 @@ export class Board {
   }
 
   private refresh(): void {
-    this.#tasksService.list().subscribe((tasks) => this.tasks.set(tasks));
+    this.refreshing.set(true);
+    this.#tasksService.list().subscribe({
+      next: (tasks) => {
+        this.tasks.set(tasks);
+        this.refreshing.set(false);
+      },
+      error: () => this.refreshing.set(false),
+    });
   }
 
   /** Opens the create dialog (ticket #14). */

@@ -71,14 +71,16 @@ describe('BoardRealtimeService', () => {
     const service = new BoardRealtimeService();
     const realigned = vi.fn();
     service.realigned$.subscribe(realigned);
+    expect(service.connected()).toBe(false);
 
     await flush();
 
     expect(state.startCallCount).toBe(1);
     expect(realigned).toHaveBeenCalledTimes(1);
+    expect(service.connected()).toBe(true);
   });
 
-  it('un fallimento della prima connessione viene ritentato (non delegato ad Automatic Reconnect)', async () => {
+  it('un fallimento della prima connessione viene ritentato (non delegato ad Automatic Reconnect) e connected resta false fino al successo', async () => {
     vi.useFakeTimers();
     let attempts = 0;
     state.startBehavior = () => {
@@ -86,12 +88,14 @@ describe('BoardRealtimeService', () => {
       return attempts === 1 ? Promise.reject(new Error('offline')) : Promise.resolve();
     };
 
-    new BoardRealtimeService();
+    const service = new BoardRealtimeService();
     await vi.advanceTimersByTimeAsync(0);
     expect(state.startCallCount).toBe(1);
+    expect(service.connected()).toBe(false);
 
     await vi.advanceTimersByTimeAsync(5000);
     expect(state.startCallCount).toBe(2);
+    expect(service.connected()).toBe(true);
     vi.useRealTimers();
   });
 

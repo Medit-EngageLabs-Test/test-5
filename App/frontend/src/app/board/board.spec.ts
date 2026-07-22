@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { CdkDragDrop } from '@angular/cdk/drag-drop';
 import { of, Subject } from 'rxjs';
 import { Board } from './board';
@@ -17,6 +18,10 @@ import {
  */
 function makeFakeRealtimeService() {
   return {
+    // Board's quiescent() reads connected() every change-detection cycle — a plain boolean
+    // signal, never toggled false, is enough for these tests: none of them exercise the
+    // data-realtime-quiescent host attribute itself (that's the two-client E2E's job).
+    connected: signal(true),
     taskCreated$: new Subject<TaskRealtimeEvent>(),
     taskUpdated$: new Subject<TaskRealtimeEvent>(),
     taskMoved$: new Subject<TaskRealtimeEvent>(),
@@ -247,5 +252,38 @@ describe('Board', () => {
     realtimeService.commentUpdated$.next({ taskId: 't-1', commentId: 'c-1' });
 
     expect(tasksService.list).toHaveBeenCalledTimes(1);
+  });
+
+  // ── F6 — data-realtime-quiescent (ticket #23 fix-up): gate per il drag E2E a due client ────
+
+  it('data-realtime-quiescent è "false" finché l’hub non si è mai connesso', async () => {
+    const { fixture, element, realtimeService } = await setup([]);
+    realtimeService.connected.set(false);
+    fixture.detectChanges();
+
+    expect(element.getAttribute('data-realtime-quiescent')).toBe('false');
+  });
+
+  it('data-realtime-quiescent è "true" quando connesso e nessun refresh è in corso', async () => {
+    const { element } = await setup([]);
+
+    expect(element.getAttribute('data-realtime-quiescent')).toBe('true');
+  });
+
+  it('data-realtime-quiescent torna "false" durante il refresh scatenato da un evento realtime, poi "true" a fetch completato', async () => {
+    const pending = new Subject<Task[]>();
+    let calls = 0;
+    const list = vi.fn(() => (calls++ === 0 ? of([]) : pending));
+    const { fixture, element, realtimeService } = await setup([], { list });
+    expect(element.getAttribute('data-realtime-quiescent')).toBe('true');
+
+    realtimeService.taskCreated$.next({ taskId: 'from-another-client' });
+    fixture.detectChanges();
+    expect(element.getAttribute('data-realtime-quiescent')).toBe('false');
+
+    pending.next([]);
+    pending.complete();
+    fixture.detectChanges();
+    expect(element.getAttribute('data-realtime-quiescent')).toBe('true');
   });
 });
