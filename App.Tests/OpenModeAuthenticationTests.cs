@@ -31,6 +31,18 @@ public class OpenModeAuthenticationTests(AppFactory factory) : IClassFixture<App
     }
 
     [Fact]
+    public async Task GetTasks_InOpenMode_Returns200WithoutASession()
+    {
+        // Mirrors GetContacts_InOpenMode_Returns200WithoutASession: with the OIDC contract
+        // present this same call returns 401 (AuthenticationTests.GetTasks_WithoutSession_Returns401).
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/tasks");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task CreateContact_InOpenMode_RefusesAnAnonymousCaller()
     {
         // Role-gated writes opt into authorization explicitly (RequireRole), and WebApplication

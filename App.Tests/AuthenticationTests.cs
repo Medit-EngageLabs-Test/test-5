@@ -77,6 +77,20 @@ public class AuthenticationTests(AuthenticatedAppFactory factory) : IClassFixtur
     }
 
     [Fact]
+    public async Task GetTasks_WithoutSession_Returns401()
+    {
+        // GET /api/tasks requires only authentication (no role, ticket #9): like Contacts
+        // reads, no explicit RequireAuthorization — the platform's FallbackPolicy already
+        // gates it in production. The open-mode counterpart (200 without a session) lives in
+        // OpenModeAuthenticationTests.
+        var client = CreateClient();
+
+        var response = await client.GetAsync("/api/tasks");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
     public async Task ApiRequest_WithBearerToken_Returns401()
     {
         // Apps do not accept bearer tokens (core.md): no bearer scheme is registered,

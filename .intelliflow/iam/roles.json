@@ -8,5 +8,10 @@
     "value": "Contacts.Writer",
     "displayName": "Contacts Writer",
     "description": "Can create and edit contacts, but cannot delete them."
+  },
+  {
+    "value": "Board.Moderator",
+    "displayName": "Board Moderator",
+    "description": "Full moderation rights on the Board: can manage any Task regardless of who created it."
   }
 ]

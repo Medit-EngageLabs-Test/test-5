@@ -12,6 +12,8 @@ export const AppRoles = {
   ContactsAdmin: 'Contacts.Admin',
   /** Can create and edit contacts, but cannot delete them. */
   ContactsWriter: 'Contacts.Writer',
+  /** Full moderation rights on the Board: can manage any Task regardless of who created it. */
+  BoardModerator: 'Board.Moderator',
 } as const;
 
 /** One of the role values declared in roles.json. */
