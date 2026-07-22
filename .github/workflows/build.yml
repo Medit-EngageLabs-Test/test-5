@@ -124,10 +124,54 @@ jobs:
         run: dotnet tool restore
         working-directory: App
 
+      # Storage capability (round-trip test, AB#13): MinIO's official image has no default
+      # command (unlike postgres/oidc-mock above, whose images start their server with no args)
+      # — it needs "server /data" explicitly, and the `services:` block has no command/entrypoint
+      # key to supply it (GitHub Actions limitation). So MinIO runs as a plain background
+      # container started in a step, on the same runner host network as every other step —
+      # reachable at localhost:9000 exactly like the services above.
+      - name: Start MinIO (storage capability)
+        run: |
+          docker run -d --name minio-ci \
+            -p 9000:9000 -p 9001:9001 \
+            -e MINIO_ROOT_USER=ci-minio \
+            -e MINIO_ROOT_PASSWORD=ci-secret \
+            minio/minio server /data --console-address ":9001"
+
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:9000/minio/health/live > /dev/null; then
+              echo "MinIO ready"
+              break
+            fi
+            if [ "$i" -eq 15 ]; then
+              echo "::error::MinIO did not become ready"
+              docker logs minio-ci
+              exit 1
+            fi
+            echo "Waiting for MinIO (attempt $i)…"
+            sleep $((i * 2))
+          done
+
+      # The bucket-lifecycle guardrail forbids bucket creation in App code, not here: this
+      # mirrors the dev-compose "mc mb" one-off step from the storage capability's Activation
+      # recipe, just run against the CI MinIO instead.
+      - name: Create test bucket (storage capability)
+        run: |
+          docker run --rm --network host --entrypoint /bin/sh minio/minio -c \
+            'mc alias set ci http://localhost:9000 ci-minio ci-secret && mc mb --ignore-existing ci/ci-bucket'
+
       - name: Test BE con coverage
         run: dotnet test App.Tests/App.Tests.csproj --collect:"XPlat Code Coverage" --results-directory ./TestResults
         env:
           TEST_DB_CONNECTION_STRING: Host=localhost;Database=testdb;Username=testuser;Password=testpassword
+          # Storage capability: real MinIO started above, so the round-trip test (IObjectStore)
+          # exercises the actual S3 client, not just startup validation.
+          Storage__Endpoint: http://localhost:9000
+          Storage__BucketName: ci-bucket
+          Storage__Folder: ci
+          Storage__AccessKey: ci-minio
+          Storage__SecretKey: ci-secret
+          Storage__Region: us-east-1
 
       - name: Coverage report BE
         run: |
@@ -240,6 +284,14 @@ jobs:
           OIDC_ISSUER: http://localhost:4011
           OIDC_CLIENT_ID: e2e-client
           OIDC_CLIENT_SECRET: e2e-secret
+          # Storage capability: no-fallback config requires values at startup.
+          # Placeholders suffice as long as E2E do not exercise storage paths.
+          Storage__Endpoint: http://localhost:9000
+          Storage__BucketName: ci-placeholder
+          Storage__Folder: ci
+          Storage__AccessKey: ci
+          Storage__SecretKey: ci-secret
+          Storage__Region: us-east-1
 
       - name: Setup Node
         uses: actions/setup-node@v7
