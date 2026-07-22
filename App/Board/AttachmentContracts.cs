@@ -2,6 +2,9 @@ namespace App.Board;
 
 /// <summary>
 /// Wire shape of an Attachment, projected instead of serializing the entity directly (ticket #20).
+/// <see cref="CommentId"/> is non-null when it was uploaded to a Comment rather than directly to
+/// the Task (ticket #21) — the frontend partitions one Task-wide list by this field instead of
+/// calling a separate per-Comment endpoint.
 /// </summary>
 public record AttachmentResponse(
     Guid Id,

@@ -6,6 +6,7 @@ using System.Text.Json;
 using App.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using BoardComment = App.Board.Comment;
 using BoardTask = App.Board.Task;
 using BoardUser = App.Board.User;
 
@@ -14,7 +15,9 @@ namespace App.Tests;
 /// <summary>
 /// Covers <c>GET/POST /api/tasks/{taskId}/attachments</c> and <c>GET /api/attachments/{id}/content</c>
 /// (ticket #20): server-side validation (size/content-type whitelist), the S3 round trip via
-/// <see cref="IObjectStore"/>, and the proxied download.
+/// <see cref="IObjectStore"/>, and the proxied download. Also covers
+/// <c>POST /api/comments/{commentId}/attachments</c> and the Attachment cascade on Comment
+/// deletion (ticket #21).
 /// </summary>
 public class AttachmentsEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFixture<RoleAuthenticatedAppFactory>
 {
@@ -45,6 +48,16 @@ public class AttachmentsEndpointTests(RoleAuthenticatedAppFactory factory) : ICl
         db.Add(task);
         await db.SaveChangesAsync();
         return task.Id;
+    }
+
+    private async Task<Guid> SeedCommentAsync(Guid taskId, Guid authorId, string body)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var comment = new BoardComment { TaskId = taskId, AuthorId = authorId, Body = body };
+        db.Add(comment);
+        await db.SaveChangesAsync();
+        return comment.Id;
     }
 
     /// <summary>The StorageKey EF persisted for a just-uploaded Attachment — used to clean up the
@@ -252,5 +265,122 @@ public class AttachmentsEndpointTests(RoleAuthenticatedAppFactory factory) : ICl
         var response = await client.GetAsync($"/api/attachments/{Guid.NewGuid()}/content");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    // ── #21 — POST /api/comments/{commentId}/attachments ───────────────────────
+
+    [Fact]
+    public async Task UploadCommentAttachment_ValidFile_SavesRowWithTaskIdDerivedFromComment()
+    {
+        var userId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(userId, $"Attività con conversazione {Guid.NewGuid()}");
+        var commentId = await SeedCommentAsync(taskId, userId, "Un messaggio");
+        var client = CreateAuthenticatedClient();
+        var content = Encoding.UTF8.GetBytes($"allegato di un messaggio {Guid.NewGuid()}");
+        using var multipart = BuildUpload(content, "allegato-messaggio.txt", "text/plain");
+
+        var response = await client.PostAsync($"/api/comments/{commentId}/attachments", multipart);
+
+        var attachmentId = Guid.Empty;
+        try
+        {
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            var attachment = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+            attachmentId = attachment.GetProperty("id").GetGuid();
+            // TaskId is derived from the Comment server-side — never accepted from the client.
+            Assert.Equal(taskId, attachment.GetProperty("taskId").GetGuid());
+            Assert.Equal(commentId, attachment.GetProperty("commentId").GetGuid());
+        }
+        finally
+        {
+            using var scope = factory.Services.CreateScope();
+            var objectStore = scope.ServiceProvider.GetRequiredService<IObjectStore>();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var stored = await db.Attachments.FindAsync(attachmentId);
+            if (stored is not null)
+            {
+                await objectStore.DeleteAsync(stored.StorageKey);
+                db.Attachments.Remove(stored);
+                await db.SaveChangesAsync();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task UploadCommentAttachment_UnknownCommentId_Returns404()
+    {
+        var client = CreateAuthenticatedClient();
+        using var multipart = BuildUpload(Encoding.UTF8.GetBytes("contenuto"), "file.txt", "text/plain");
+
+        var response = await client.PostAsync($"/api/comments/{Guid.NewGuid()}/attachments", multipart);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ListAttachments_IncludesAttachmentsUploadedToComments()
+    {
+        var userId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(userId, $"Attività {Guid.NewGuid()}");
+        var commentId = await SeedCommentAsync(taskId, userId, "Un messaggio");
+        var client = CreateAuthenticatedClient();
+        using var multipart = BuildUpload(Encoding.UTF8.GetBytes("contenuto"), "sul-messaggio.txt", "text/plain");
+        var uploadResponse = await client.PostAsync($"/api/comments/{commentId}/attachments", multipart);
+        var attachmentId = (await uploadResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions))
+            .GetProperty("id").GetGuid();
+
+        try
+        {
+            var response = await client.GetAsync($"/api/tasks/{taskId}/attachments");
+
+            var attachments = await response.Content.ReadFromJsonAsync<JsonElement[]>(JsonOptions);
+            var attachment = Assert.Single(attachments!, a => a.GetProperty("id").GetGuid() == attachmentId);
+            Assert.Equal(commentId, attachment.GetProperty("commentId").GetGuid());
+        }
+        finally
+        {
+            using var scope = factory.Services.CreateScope();
+            var objectStore = scope.ServiceProvider.GetRequiredService<IObjectStore>();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var stored = await db.Attachments.FindAsync(attachmentId);
+            if (stored is not null)
+            {
+                await objectStore.DeleteAsync(stored.StorageKey);
+                db.Attachments.Remove(stored);
+                await db.SaveChangesAsync();
+            }
+        }
+    }
+
+    // ── #21 — Cascata: eliminare un Commento elimina i suoi Allegati ────────────
+
+    [Fact]
+    public async Task DeleteComment_CascadesItsAttachments_RowsAndS3Object()
+    {
+        var userId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(userId, $"Attività {Guid.NewGuid()}");
+        var commentId = await SeedCommentAsync(taskId, userId, "Un messaggio con allegato");
+        var client = CreateAuthenticatedClient();
+        using var multipart = BuildUpload(Encoding.UTF8.GetBytes("contenuto"), "da-cancellare.txt", "text/plain");
+        var uploadResponse = await client.PostAsync($"/api/comments/{commentId}/attachments", multipart);
+        var attachmentId = (await uploadResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions))
+            .GetProperty("id").GetGuid();
+
+        string storageKey;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            storageKey = (await db.Attachments.FindAsync(attachmentId))!.StorageKey;
+        }
+
+        var deleteResponse = await client.DeleteAsync($"/api/comments/{commentId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        using var verifyScope = factory.Services.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var objectStore = verifyScope.ServiceProvider.GetRequiredService<IObjectStore>();
+        Assert.Null(await verifyDb.Attachments.FindAsync(attachmentId));
+        Assert.Null(await objectStore.ReadAsync(storageKey));
     }
 }

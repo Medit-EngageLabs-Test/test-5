@@ -137,6 +137,11 @@ export class TaskDetailDialog {
     return this.attachments().filter((attachment) => attachment.commentId === null);
   }
 
+  /** The Attachments uploaded to one specific Comment (ticket #21). */
+  protected attachmentsFor(commentId: string): Attachment[] {
+    return this.attachments().filter((attachment) => attachment.commentId === commentId);
+  }
+
   /** Human-readable file size, e.g. "128 KB" (ticket #20). */
   protected formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -171,6 +176,27 @@ export class TaskDetailDialog {
           duration: SNACK_BAR_DURATION_MS,
         });
       },
+    });
+  }
+
+  /**
+   * Uploads the file picked from a Comment's own file input (ticket #21). Resets the input's
+   * value afterwards so selecting the very same file again still fires a `change` event.
+   */
+  protected onCommentFileSelected(event: Event, comment: Comment, input: HTMLInputElement): void {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    input.value = '';
+    if (!file) return;
+
+    this.attachmentsService.uploadToComment(comment.id, file).subscribe({
+      next: () => {
+        this.refresh();
+        this.snackBar.open('Allegato caricato.', 'Chiudi', { duration: SNACK_BAR_DURATION_MS });
+      },
+      error: () =>
+        this.snackBar.open('Impossibile caricare l’allegato.', 'Chiudi', {
+          duration: SNACK_BAR_DURATION_MS,
+        }),
     });
   }
 

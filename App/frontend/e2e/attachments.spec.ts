@@ -22,7 +22,7 @@ async function openDetailPanel(page: Page, title: string): Promise<void> {
   await expect(page.getByRole('dialog')).toBeVisible();
 }
 
-test.describe('Allegati sulle Attività (F5, ticket #20)', () => {
+test.describe('Allegati sulle Attività e sui messaggi (F5, tickets #20-#21)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/board');
   });
@@ -73,6 +73,41 @@ test.describe('Allegati sulle Attività (F5, ticket #20)', () => {
     await dialog.getByRole('button', { name: 'Chiudi' }).click();
     await expect(dialog).toBeHidden();
 
+    await expect(card.getByLabel('Allegati')).toContainText('1');
+  });
+
+  // ── #21 — Allegare file a un messaggio ──────────────────────────────────────
+
+  test('allegare un file a un messaggio lo mostra sotto il messaggio e aggiorna il contatore 📎', async ({
+    page,
+  }) => {
+    const title = uniqueTitle('allegato-messaggio');
+    const message = uniqueTitle('messaggio-con-allegato');
+    await createTask(page, title);
+    const card = cardByTitle(page, title);
+    await openDetailPanel(page, title);
+    const dialog = page.getByRole('dialog', { name: title });
+
+    await dialog.getByLabel('Scrivi un messaggio').fill(message);
+    await dialog.getByRole('button', { name: 'Invia' }).click();
+    await expect(dialog.getByText(message)).toBeVisible();
+
+    const commentItem = dialog.locator('.comment', { hasText: message });
+    await commentItem
+      .locator('input[type="file"]')
+      .setInputFiles({
+        name: 'allegato-messaggio.txt',
+        mimeType: 'text/plain',
+        buffer: Buffer.from(`allegato di un messaggio ${Date.now()}`),
+      });
+
+    await expect(commentItem.getByText('allegato-messaggio.txt')).toBeVisible();
+    // The Task-level section stays empty — this Attachment belongs to the Comment, not the Task
+    // directly — even though the 📎 badge on the card counts it too (ticket #21).
+    await expect(dialog.locator('.attachments-section').getByText('Nessun allegato.')).toBeVisible();
+
+    await dialog.getByRole('button', { name: 'Chiudi' }).click();
+    await expect(dialog).toBeHidden();
     await expect(card.getByLabel('Allegati')).toContainText('1');
   });
 });

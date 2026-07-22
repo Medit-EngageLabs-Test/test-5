@@ -5,7 +5,8 @@ using Microsoft.EntityFrameworkCore;
 namespace App.Board;
 
 /// <summary>
-/// Endpoints for Attachments on Tasks (ticket #20): upload, list, and proxied download.
+/// Endpoints for Attachments on Tasks (ticket #20) and Comments (ticket #21): upload, list, and
+/// proxied download.
 /// </summary>
 public static class AttachmentsEndpoints
 {
@@ -22,6 +23,12 @@ public static class AttachmentsEndpoints
         var taskAttachmentsGroup = app.MapGroup("/api/tasks/{taskId:guid}/attachments").WithTags("Board");
         taskAttachmentsGroup.MapGet("/", ListAttachments);
         taskAttachmentsGroup.MapPost("/", UploadTaskAttachment).DisableAntiforgery();
+
+        // Ticket #21: uploads to a specific Comment. TaskId is always derived from the Comment
+        // server-side (see UploadCommentAttachment) — never accepted from the client — so an
+        // Attachment's TaskId/CommentId can never disagree.
+        var commentAttachmentsGroup = app.MapGroup("/api/comments/{commentId:guid}/attachments").WithTags("Board");
+        commentAttachmentsGroup.MapPost("/", UploadCommentAttachment).DisableAntiforgery();
 
         // Not nested under a Task: addresses a single Attachment by its own id, mirroring how
         // DeleteComment/DeleteTask address their resource directly.
@@ -40,6 +47,12 @@ public static class AttachmentsEndpoints
             LogLevel.Information,
             new EventId(1111, "AttachmentUploaded"),
             "Attachment uploaded — id={AttachmentId}, taskId={TaskId}");
+
+    private static readonly Action<ILogger, string, Exception?> _attachmentS3DeleteFailed =
+        LoggerMessage.Define<string>(
+            LogLevel.Warning,
+            new EventId(1113, "AttachmentS3DeleteFailed"),
+            "Attachment S3 object could not be deleted (best-effort) — key={StorageKey}");
 
     /// <summary>Returns every Attachment of a Task, in upload order.</summary>
     private static async System.Threading.Tasks.Task<IResult> ListAttachments(
@@ -78,6 +91,25 @@ public static class AttachmentsEndpoints
             return Results.NotFound();
 
         return await SaveAttachmentAsync(file, taskId, commentId: null, db, objectStore, userProvisioning, user, loggerFactory);
+    }
+
+    /// <summary>Uploads a file to a Comment (ticket #21): same validations as
+    /// <see cref="UploadTaskAttachment"/>, with <see cref="Attachment.TaskId"/> always derived
+    /// from the Comment's own Task, never from the client.</summary>
+    private static async System.Threading.Tasks.Task<IResult> UploadCommentAttachment(
+        Guid commentId,
+        IFormFile? file,
+        AppDbContext db,
+        IObjectStore objectStore,
+        IUserProvisioningService userProvisioning,
+        ClaimsPrincipal user,
+        ILoggerFactory loggerFactory)
+    {
+        var comment = await db.Comments.FindAsync(commentId);
+        if (comment is null)
+            return Results.NotFound();
+
+        return await SaveAttachmentAsync(file, comment.TaskId, commentId, db, objectStore, userProvisioning, user, loggerFactory);
     }
 
     /// <summary>Shared validation + save path, reused by the Comment upload endpoint (ticket #21).</summary>
@@ -149,5 +181,29 @@ public static class AttachmentsEndpoints
         await stored.Content.CopyToAsync(buffer);
 
         return Results.File(buffer.ToArray(), attachment.ContentType, attachment.FileName);
+    }
+
+    /// <summary>
+    /// Deletes each of <paramref name="storageKeys"/> from the storage capability, best-effort:
+    /// a failure on one key is logged and skipped rather than raised, so it never blocks the
+    /// caller's own row deletion. Shared by <see cref="CommentsEndpoints.DeleteComment"/>'s
+    /// cascade (ticket #21) and, in a later ticket, <see cref="TasksEndpoints.DeleteTask"/>'s.
+    /// </summary>
+    internal static async System.Threading.Tasks.Task DeleteStorageObjectsBestEffortAsync(
+        IEnumerable<string> storageKeys,
+        IObjectStore objectStore,
+        ILogger logger)
+    {
+        foreach (var key in storageKeys)
+        {
+            try
+            {
+                await objectStore.DeleteAsync(key);
+            }
+            catch (Exception ex)
+            {
+                _attachmentS3DeleteFailed(logger, key, ex);
+            }
+        }
     }
 }

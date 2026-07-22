@@ -321,4 +321,60 @@ describe('TaskDetailDialog', () => {
     expect(attachmentsService.uploadToTask).toHaveBeenCalledWith('t-1', file);
     expect(attachmentsService.list).toHaveBeenCalledTimes(2); // initial load + refresh after upload
   });
+
+  // ── #21 — Allegati sui messaggi ──────────────────────────────────────────────
+
+  it('mostra gli allegati di un messaggio sotto al suo testo (ticket #21)', async () => {
+    const commentAttachment = {
+      id: 'a-3',
+      taskId: 't-1',
+      commentId: 'c-1',
+      fileName: 'sul-messaggio.txt',
+      contentType: 'text/plain',
+      sizeBytes: 100,
+      uploadedById: 'u-1',
+      createdAt: '2026-01-01T00:00:00Z',
+    };
+    const { element } = await setup(
+      { task },
+      { attachmentsServiceOverrides: { list: vi.fn().mockReturnValue(of([commentAttachment])) } },
+    );
+
+    const items = element.querySelectorAll('.comment');
+    expect(items[0].textContent).toContain('sul-messaggio.txt');
+    expect(items[1].textContent).not.toContain('sul-messaggio.txt');
+  });
+
+  it('caricare un file su un messaggio chiama uploadToComment e ricarica gli allegati', async () => {
+    const uploadedAttachment = {
+      id: 'a-4',
+      taskId: 't-1',
+      commentId: 'c-1',
+      fileName: 'allegato.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 2048,
+      uploadedById: 'u-1',
+      createdAt: '2026-01-01T00:00:00Z',
+    };
+    const { fixture, attachmentsService } = await setup(
+      { task },
+      {
+        attachmentsServiceOverrides: {
+          uploadToComment: vi.fn().mockReturnValue(of(uploadedAttachment)),
+        },
+      },
+    );
+    const file = new File(['contenuto'], 'allegato.pdf', { type: 'application/pdf' });
+    const input = document.createElement('input');
+    Object.defineProperty(input, 'files', { value: [file] });
+
+    fixture.componentInstance['onCommentFileSelected'](
+      { target: input } as unknown as Event,
+      ownComment,
+      input,
+    );
+
+    expect(attachmentsService.uploadToComment).toHaveBeenCalledWith('c-1', file);
+    expect(attachmentsService.list).toHaveBeenCalledTimes(2); // initial load + refresh after upload
+  });
 });

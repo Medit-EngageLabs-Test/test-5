@@ -106,6 +106,37 @@
               </span>
             </div>
             <p class="comment-body">{{ comment.body }}</p>
+            @if (attachmentsFor(comment.id).length > 0) {
+              <ul class="comment-attachment-list">
+                @for (attachment of attachmentsFor(comment.id); track attachment.id) {
+                  <li class="attachment">
+                    <a
+                      class="attachment-name"
+                      [href]="downloadUrl(attachment.id)"
+                      [download]="attachment.fileName"
+                      >{{ attachment.fileName }}</a
+                    >
+                    <span class="attachment-meta">({{ formatSize(attachment.sizeBytes) }})</span>
+                  </li>
+                }
+              </ul>
+            }
+            <input
+              #commentFileInput
+              type="file"
+              hidden
+              [accept]="acceptedFileTypes"
+              (change)="onCommentFileSelected($event, comment, commentFileInput)"
+            />
+            <button
+              type="button"
+              mat-icon-button
+              class="comment-attach-button"
+              aria-label="Allega file al messaggio"
+              (click)="commentFileInput.click()"
+            >
+              <mat-icon aria-hidden="true">attach_file</mat-icon>
+            </button>
           }
         </li>
       }
