@@ -21,6 +21,7 @@ public static class TasksEndpoints
         group.MapGet("/", ListTasks);
         group.MapPost("/", CreateTask);
         group.MapPut("/{id:guid}", UpdateTask);
+        group.MapPatch("/{id:guid}/status", UpdateTaskStatus);
     }
 
     private static readonly Action<ILogger, int, Exception?> _tasksListed =
@@ -40,6 +41,12 @@ public static class TasksEndpoints
             LogLevel.Information,
             new EventId(1103, "TaskUpdated"),
             "Task updated — id={TaskId}");
+
+    private static readonly Action<ILogger, Guid, Status, Exception?> _taskStatusChanged =
+        LoggerMessage.Define<Guid, Status>(
+            LogLevel.Information,
+            new EventId(1104, "TaskStatusChanged"),
+            "Task status changed — id={TaskId}, status={Status}");
 
     /// <summary>
     /// Returns every Task ordered per ADR-0002: Urgency (High→Low), then DueDate ascending
@@ -140,6 +147,35 @@ public static class TasksEndpoints
         var canDelete = user.IsInRole(AppRoles.BoardModerator) || task.CreatedById == currentUser.Id;
 
         _taskUpdated(logger, task.Id, null);
+        return Results.Ok(TaskResponse.From(task, canDelete));
+    }
+
+    /// <summary>
+    /// Moves a Task between Board columns (ticket #16, drag&amp;drop): changes only Status.
+    /// Allowed to any authenticated User, not just the creator.
+    /// </summary>
+    private static async System.Threading.Tasks.Task<IResult> UpdateTaskStatus(
+        Guid id,
+        UpdateTaskStatusRequest request,
+        AppDbContext db,
+        IUserProvisioningService userProvisioning,
+        ClaimsPrincipal user,
+        ILoggerFactory loggerFactory)
+    {
+        var task = await db.Tasks.FindAsync(id);
+        if (task is null)
+            return Results.NotFound();
+
+        var logger = loggerFactory.CreateLogger(LogCategory);
+
+        task.Status = request.Status;
+        task.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        var currentUser = await userProvisioning.GetOrCreateCurrentUserAsync(user);
+        var canDelete = user.IsInRole(AppRoles.BoardModerator) || task.CreatedById == currentUser.Id;
+
+        _taskStatusChanged(logger, task.Id, task.Status, null);
         return Results.Ok(TaskResponse.From(task, canDelete));
     }
 }

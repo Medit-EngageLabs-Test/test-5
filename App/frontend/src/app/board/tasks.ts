@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { CreateTaskRequest, Task, UpdateTaskRequest } from './task.model';
+import { CreateTaskRequest, Task, TaskStatus, UpdateTaskRequest } from './task.model';
 
 /** HTTP client for the `/api/tasks` resource. */
 @Injectable({ providedIn: 'root' })
@@ -22,5 +22,10 @@ export class TasksService {
   /** Replaces a Task's title/description/urgency/due date (ticket #15) — Status is untouched. */
   update(id: string, request: UpdateTaskRequest): Observable<Task> {
     return this.#http.put<Task>(`${this.#base}/${id}`, request);
+  }
+
+  /** Moves a Task to another Board column (ticket #16, drag&drop). */
+  updateStatus(id: string, status: TaskStatus): Observable<Task> {
+    return this.#http.patch<Task>(`${this.#base}/${id}/status`, { status });
   }
 }

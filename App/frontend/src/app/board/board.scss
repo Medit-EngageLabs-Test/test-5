@@ -39,6 +39,32 @@
   font: var(--mat-sys-body-medium);
 }
 
+// min-height keeps an empty column droppable — without it, a column with only the
+// (absolutely-flowed-away) empty-state paragraph would collapse to zero height and
+// no longer accept a card dragged in from another column.
+.column-drop-list {
+  min-height: 3rem;
+}
+
+.task-card-drag {
+  cursor: grab;
+
+  &.cdk-drag-dragging {
+    cursor: grabbing;
+  }
+}
+
+.cdk-drag-preview {
+  box-shadow:
+    0 4px 8px rgba(0, 0, 0, 0.2),
+    0 1px 3px rgba(0, 0, 0, 0.15);
+  border-radius: 12px;
+}
+
+.cdk-drag-placeholder {
+  opacity: 0.3;
+}
+
 .show-more {
   width: 100%;
   margin-top: 0.5rem;

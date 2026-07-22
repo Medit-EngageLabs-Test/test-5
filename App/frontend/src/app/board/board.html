@@ -5,18 +5,27 @@
   </button>
 </header>
 
-<div class="board-columns">
+<div class="board-columns" cdkDropListGroup>
   @for (column of columns; track column.status) {
     <section class="board-column" [attr.aria-label]="column.label">
       <h2 class="column-header">{{ column.label }}</h2>
 
-      @if (tasksFor(column.status).length === 0) {
-        <p class="empty-state">Nessuna Attività qui.</p>
-      } @else {
-        @for (task of tasksFor(column.status); track task.id) {
-          <app-task-card [task]="task" (editRequested)="openEditDialog(task)" />
+      <!--
+        ADR-0002: no intra-column reorder — cdkDropListGroup connects every column's list, but
+        onDrop() no-ops when previousContainer === container, so a drop back into the same
+        column never changes anything.
+      -->
+      <div class="column-drop-list" cdkDropList (cdkDropListDropped)="onDrop($event, column.status)">
+        @if (tasksFor(column.status).length === 0) {
+          <p class="empty-state">Nessuna Attività qui.</p>
+        } @else {
+          @for (task of tasksFor(column.status); track task.id) {
+            <div class="task-card-drag" cdkDrag [cdkDragData]="task">
+              <app-task-card [task]="task" (editRequested)="openEditDialog(task)" />
+            </div>
+          }
         }
-      }
+      </div>
 
       @if (column.status === 'Done' && hasMoreDone()) {
         <button mat-button class="show-more" (click)="showMoreDone()">Mostra altre</button>

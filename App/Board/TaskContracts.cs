@@ -9,6 +9,10 @@ public record CreateTaskRequest(string Title, string? Description, Urgency? Urge
 /// <see cref="Status"/>, which only <c>PATCH /api/tasks/{id}/status</c> changes.</summary>
 public record UpdateTaskRequest(string Title, string? Description, Urgency Urgency, DateOnly? DueDate);
 
+/// <summary>Body of <c>PATCH /api/tasks/{id}/status</c> (ticket #16): the Status a drag&amp;drop
+/// move between Board columns resolves to.</summary>
+public record UpdateTaskStatusRequest(Status Status);
+
 /// <summary>
 /// Wire shape of a Task, projected instead of serializing the entity directly so
 /// <see cref="CanDelete"/> — a per-viewer, resource-based fact (ticket #17: creator or

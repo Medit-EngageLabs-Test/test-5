@@ -23,7 +23,31 @@ async function createTask(page: Page, title: string): Promise<void> {
 }
 
 function cardByTitle(page: Page, title: string) {
-  return page.locator('.task-card', { hasText: title });
+  return page.locator('.task-card-drag', { hasText: title });
+}
+
+/**
+ * Drags the card titled `title` into `targetColumnLabel`'s drop list. Angular CDK only starts
+ * tracking a drag once the pointer has moved past an internal threshold, so a single mouse jump
+ * from the card to the target is not enough — the move is broken into several intermediate steps.
+ */
+async function dragCardToColumn(page: Page, title: string, targetColumnLabel: string): Promise<void> {
+  const card = cardByTitle(page, title);
+  const targetDropList = page.locator(
+    `.board-column[aria-label="${targetColumnLabel}"] .column-drop-list`,
+  );
+
+  const cardBox = await card.boundingBox();
+  const targetBox = await targetDropList.boundingBox();
+  if (!cardBox || !targetBox) {
+    throw new Error('Bounding box non disponibile: impossibile calcolare il drag&drop.');
+  }
+
+  await page.mouse.move(cardBox.x + cardBox.width / 2, cardBox.y + cardBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + 10, { steps: 10 });
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 10 });
+  await page.mouse.up();
 }
 
 test.describe('Attività — creare, modificare, spostare, eliminare (F3)', () => {
@@ -67,5 +91,18 @@ test.describe('Attività — creare, modificare, spostare, eliminare (F3)', () =
 
     await expect(page.getByText(updatedTitle)).toBeVisible();
     await expect(page.getByText(originalTitle)).toHaveCount(0);
+  });
+
+  // ── #16 — Spostare tra colonne ───────────────────────────────────────────────
+
+  test('il drag&drop tra colonne diverse sposta la card e ne cambia lo Status', async ({ page }) => {
+    const title = uniqueTitle('drag');
+    await createTask(page, title);
+    await expect(page.locator('.board-column[aria-label="To Do"]').getByText(title)).toBeVisible();
+
+    await dragCardToColumn(page, title, 'Doing');
+
+    await expect(page.locator('.board-column[aria-label="Doing"]').getByText(title)).toBeVisible();
+    await expect(page.locator('.board-column[aria-label="To Do"]').getByText(title)).toHaveCount(0);
   });
 });

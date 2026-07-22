@@ -246,4 +246,30 @@ public class TasksEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFix
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
+
+    // ── #16 — Spostare tra colonne ───────────────────────────────────────────────
+
+    [Fact]
+    public async Task UpdateTaskStatus_MovesTaskToTargetColumn()
+    {
+        var userId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(userId, "Da spostare", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.PatchAsJsonAsync($"/api/tasks/{taskId}/status", new { status = "Doing" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var task = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        Assert.Equal("Doing", task.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task UpdateTaskStatus_UnknownId_Returns404()
+    {
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.PatchAsJsonAsync($"/api/tasks/{Guid.NewGuid()}/status", new { status = "Done" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
 }

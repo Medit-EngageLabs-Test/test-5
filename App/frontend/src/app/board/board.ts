@@ -1,4 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { CdkDrag, CdkDragDrop, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { MatButton, MatFabButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
 import { MatDialog } from '@angular/material/dialog';
@@ -27,11 +28,14 @@ const DONE_PAGE_SIZE = 50;
 /** How long a result snackbar stays on screen. */
 const SNACK_BAR_DURATION_MS = 3000;
 
-/** The Board: three columns, one per Status, filled from `GET /api/tasks`. Supports creating
- * Tasks via a Material form dialog (F3, ticket #14). */
+/**
+ * The Board: three columns, one per Status, filled from `GET /api/tasks`. Supports creating and
+ * editing Tasks via a Material form dialog (tickets #14-#15), and moving them between columns
+ * via drag&drop (ticket #16).
+ */
 @Component({
   selector: 'app-board',
-  imports: [TaskCard, MatButton, MatFabButton, MatIcon],
+  imports: [TaskCard, MatButton, MatFabButton, MatIcon, CdkDropListGroup, CdkDropList, CdkDrag],
   templateUrl: './board.html',
   styleUrl: './board.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -106,6 +110,23 @@ export class Board {
       if (!saved) return;
       this.refresh();
       this.#snackBar.open(successMessage, 'Chiudi', { duration: SNACK_BAR_DURATION_MS });
+    });
+  }
+
+  /**
+   * Drag&drop between columns changes Status (ticket #16); ADR-0002 forbids manual intra-column
+   * reordering, so a drop back into the same column's list is a deliberate no-op, not an error.
+   */
+  protected onDrop(event: CdkDragDrop<Task[]>, targetStatus: TaskStatus): void {
+    if (event.previousContainer === event.container) return;
+
+    const task = event.item.data as Task;
+    this.#tasksService.updateStatus(task.id, targetStatus).subscribe({
+      next: () => this.refresh(),
+      error: () =>
+        this.#snackBar.open('Impossibile spostare l’Attività.', 'Chiudi', {
+          duration: SNACK_BAR_DURATION_MS,
+        }),
     });
   }
 }
