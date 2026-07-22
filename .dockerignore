@@ -1,0 +1,29 @@
+# Build artifacts — copying stale bin/obj into the image corrupts the restored
+# package graph and fails the publish with NETSDK1064 (package not found).
+**/bin/
+**/obj/
+**/node_modules/
+App/frontend/.angular/
+
+# Repository and tooling — never part of the image
+.git/
+.github/
+.claude/
+.template-tests/
+.vscode/
+.idea/
+
+# Tests, reports and local artifacts
+App.Tests/
+TestResults/
+coverage-report/
+coverage-report-detail/
+coverage-report-filtered/
+App/frontend/e2e/
+**/playwright-report/
+**/test-results/
+
+# Local development only
+docker-compose.dev.yml
+docs/
+*.md

@@ -1,0 +1,37 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# Angular
+App/frontend/node_modules/
+App/wwwroot/
+
+# Playwright
+App/frontend/playwright-report/
+App/frontend/test-results/
+App/frontend/blob-report/
+App/frontend/e2e/.auth/
+
+# Coverage output
+TestResults/
+coverage-report/
+coverage-report-detail/
+coverage-report-filtered/
+
+# EF Core migration snapshots compiled
+App/Migrations/**/*.cs
+!App/Migrations/**
+
+# Secrets
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code worktrees (session-local, never part of the template)
+.claude/worktrees/

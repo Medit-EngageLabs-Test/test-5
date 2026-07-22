@@ -1,0 +1,15 @@
+{
+  "recommendations": [
+    "anthropic.claude-code",
+    "ms-dotnettools.csdevkit",
+    "angular.ng-template",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "ms-azuretools.vscode-docker",
+    "ms-ossdata.vscode-pgsql",
+    "ms-playwright.playwright",
+    "GitHub.vscode-pull-request-github",
+    "GitHub.vscode-github-actions",
+    "redhat.vscode-yaml"
+  ]
+}

@@ -1,0 +1,273 @@
+name: Build
+
+on:
+  workflow_call:
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build
+        run: dotnet build App.sln --configuration Release
+
+      - name: Format check
+        run: dotnet format App.sln --verify-no-changes
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: App/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: App/frontend
+
+      - name: Build frontend
+        # npm run (not npx ng) so the prebuild hook regenerates the role
+        # constants from roles.json before compiling.
+        run: npm run build -- --configuration production
+        working-directory: App/frontend
+
+      - name: Lint frontend
+        run: npx ng lint
+        working-directory: App/frontend
+
+      - name: Format check frontend
+        run: npm run format:check
+        working-directory: App/frontend
+
+      - name: Dependency audit NuGet
+        run: dotnet list App.sln package --vulnerable --include-transitive
+
+      - name: Dependency audit npm
+        run: npm audit --audit-level=high --omit=dev
+        working-directory: App/frontend
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: build
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: testdb
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      # Mock OIDC identity provider for the authenticated E2E flow. Only the App-independent
+      # parts are configured here (client and scopes are fixed by the portal contract): the
+      # users are seeded from roles.json by the "Prepare mock identity provider" step, since
+      # service env is resolved before checkout and cannot read repository files. The loopback
+      # http issuer is the only one the platform accepts without https; profile is overridden
+      # to carry the roles claim into the id_token, and the IdP cookies must be SameSite=Lax
+      # or the browser drops them over plain http.
+      oidc-mock:
+        image: ghcr.io/soluto/oidc-server-mock:0.12.1
+        ports:
+          - 4011:8080
+        env:
+          ASPNETCORE_URLS: http://+:8080
+          ASPNETCORE_ENVIRONMENT: Development
+          SERVER_OPTIONS_INLINE: >-
+            {"AccessTokenJwtType":"JWT","Discovery":{"ShowKeySet":true},
+             "Authentication":{"CookieSameSiteMode":"Lax","CheckSessionCookieSameSiteMode":"Lax"}}
+          OVERRIDE_STANDARD_IDENTITY_RESOURCES: "True"
+          IDENTITY_RESOURCES_INLINE: >-
+            [{"Name":"openid","ClaimTypes":["sub"]},
+             {"Name":"profile","ClaimTypes":["name","roles"]},
+             {"Name":"email","ClaimTypes":["email"]}]
+          CLIENTS_CONFIGURATION_INLINE: >-
+            [{"ClientId":"e2e-client","ClientSecrets":["e2e-secret"],
+              "AllowedGrantTypes":["authorization_code"],
+              "RedirectUris":["http://localhost:5281/api/auth/callback","http://localhost:4201/api/auth/callback"],
+              "PostLogoutRedirectUris":["http://localhost:5281/api/auth/logout-callback","http://localhost:4201/api/auth/logout-callback"],
+              "AllowedScopes":["openid","profile","email"],
+              "AlwaysIncludeUserClaimsInIdToken":true,"RequireClientSecret":true}]
+        # The image's baked-in HEALTHCHECK probes https://localhost/health (port 443), but this
+        # service runs the app on http://+:8080 (ASPNETCORE_URLS above): that probe can never
+        # pass, so GitHub Actions reports "Failed to initialize container" even though the mock
+        # is up in ~1s. Override it to probe the actual port over http (AB#13681).
+        options: >-
+          --health-cmd "curl -f http://localhost:8080/health || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+          --health-start-period 5s
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore .NET tools
+        run: dotnet tool restore
+        working-directory: App
+
+      - name: Test BE con coverage
+        run: dotnet test App.Tests/App.Tests.csproj --collect:"XPlat Code Coverage" --results-directory ./TestResults
+        env:
+          TEST_DB_CONNECTION_STRING: Host=localhost;Database=testdb;Username=testuser;Password=testpassword
+
+      - name: Coverage report BE
+        run: |
+          dotnet tool run reportgenerator \
+            -reports:"../TestResults/**/coverage.cobertura.xml" \
+            -targetdir:../coverage-report \
+            -reporttypes:JsonSummary \
+            "-classfilters:-App.Migrations*;-App.Platform*;-Microsoft.AspNetCore.OpenApi*;-System.Runtime*"
+        working-directory: App
+
+      - name: Coverage threshold BE (≥70% del codice non generato)
+        run: |
+          cov=$(python3 -c "import json; print(json.load(open('coverage-report/Summary.json'))['summary']['linecoverage'])")
+          echo "Line coverage: ${cov}%"
+          python3 -c "import sys; sys.exit(0 if float('${cov}') >= 70 else 1)" \
+            || { echo "::error::Coverage BE ${cov}% < soglia 70%"; exit 1; }
+
+      - name: Setup Node (coverage FE)
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: App/frontend/package-lock.json
+
+      - name: Install frontend dependencies (coverage FE)
+        run: npm install
+        working-directory: App/frontend
+
+      - name: Coverage threshold FE (≥70% su tutte le metriche)
+        run: npx ng test --coverage --watch=false
+        working-directory: App/frontend
+
+      - name: Build backend
+        run: dotnet build App/App.csproj --configuration Release
+        env:
+          ConnectionStrings__Database: Host=localhost;Database=testdb;Username=testuser;Password=testpassword
+
+      - name: Apply migrations
+        working-directory: App
+        run: |
+          dotnet ef migrations script --idempotent \
+            --project App.csproj \
+            --output /tmp/migrations.sql
+          PGPASSWORD=testpassword psql -h localhost -U testuser -d testdb -f /tmp/migrations.sql
+        env:
+          ConnectionStrings__Database: Host=localhost;Database=testdb;Username=testuser;Password=testpassword
+
+      # The mock identity provider runs as a job service (see `services:` above); it boots
+      # with the job, so by now it is normally up — the readiness gate just makes a failure
+      # explicit here instead of letting it surface later inside the Playwright global setup.
+      # Users are derived from roles.json via the mock's user management API: one per role
+      # ("e2e-<value>") plus "e2e" with every role, used by the E2E CRUD session — so new
+      # roles added during development are picked up with no workflow maintenance.
+      - name: Prepare mock identity provider (E2E login)
+        run: |
+          for i in $(seq 1 10); do
+            if curl -sf http://localhost:4011/.well-known/openid-configuration > /dev/null; then
+              echo "Mock identity provider ready"
+              break
+            fi
+            if [ "$i" -eq 10 ]; then
+              echo "::error::Mock identity provider did not become ready"
+              docker logs ${{ job.services['oidc-mock'].id }}
+              exit 1
+            fi
+            echo "Waiting for mock identity provider (attempt $i)…"
+            sleep $((i * 2))
+          done
+
+          for role in $(jq -r '.[].value' .intelliflow/iam/roles.json); do
+            payload=$(jq -nc --arg r "$role" '{
+              SubjectId: ("e2e-" + $r), Username: ("e2e-" + $r), Password: "e2e-password",
+              Claims: [
+                {Type: "name", Value: ("E2E " + $r), ValueType: "string"},
+                {Type: "email", Value: (("e2e-" + $r | ascii_downcase) + "@test.local"), ValueType: "string"},
+                {Type: "roles", Value: ([$r] | tostring), ValueType: "json"}]}')
+            curl -sf -X POST http://localhost:4011/api/v1/user \
+              -H 'Content-Type: application/json' -d "$payload" > /dev/null
+            echo "Seeded user e2e-$role"
+          done
+
+          all_roles=$(jq -c '[.[].value]' .intelliflow/iam/roles.json)
+          payload=$(jq -nc --argjson rs "$all_roles" '{
+            SubjectId: "e2e", Username: "e2e", Password: "e2e-password",
+            Claims: [
+              {Type: "name", Value: "E2E", ValueType: "string"},
+              {Type: "email", Value: "e2e@test.local", ValueType: "string"},
+              {Type: "roles", Value: ($rs | tostring), ValueType: "json"}]}')
+          curl -sf -X POST http://localhost:4011/api/v1/user \
+            -H 'Content-Type: application/json' -d "$payload" > /dev/null
+          echo "Seeded user e2e (all roles: $all_roles)"
+
+      - name: Start backend (background)
+        working-directory: App
+        run: |
+          dotnet run --project App.csproj --no-build \
+            --configuration Release &
+          # Wait for health endpoint with exponential backoff
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:5281/health; then
+              echo "Backend ready"
+              break
+            fi
+            echo "Waiting for backend (attempt $i)…"
+            sleep $((i * 2))
+          done
+        env:
+          ConnectionStrings__Database: Host=localhost;Database=testdb;Username=testuser;Password=testpassword
+          ASPNETCORE_ENVIRONMENT: Production
+          OIDC_ISSUER: http://localhost:4011
+          OIDC_CLIENT_ID: e2e-client
+          OIDC_CLIENT_SECRET: e2e-secret
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: App/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: App/frontend
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+        working-directory: App/frontend
+
+      - name: Run E2E tests
+        run: npm run e2e
+        working-directory: App/frontend
+        env:
+          CI: true
+          E2E_OIDC: "1"
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: App/frontend/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore

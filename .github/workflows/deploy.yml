@@ -1,0 +1,78 @@
+name: Deploy
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  detect:
+    uses: ./.github/workflows/detect-repo-role.yml
+
+  # Runs only for instantiated Apps — app-template has nothing to deploy to
+  # (no App record exists for the template itself). See detect-repo-role.yml.
+  build:
+    needs: detect
+    if: needs.detect.outputs.is_template == 'false'
+    uses: ./.github/workflows/build.yml
+
+  deploy:
+    name: Deploy
+    needs: [detect, build]
+    if: needs.detect.outputs.is_template == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # Full history + tags: GitVersion cannot compute on a shallow clone.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Dev-bypass guard (AB#13584), second net after ci.yml: a release tag still
+      # carrying the dev-bypass sentinel marker (see the iam capability) must
+      # never become an image.
+      - name: Block the development bypass on release tags
+        run: bash .github/scripts/dev-bypass-guard.sh
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      # No committed version anywhere in the sources: the release tag is the
+      # single source of truth. GitVersion computes the version from it and the
+      # build injects it (.NET /p:Version and Docker build-arg), so the image
+      # tag and the service.version observed in telemetry match by construction.
+      - name: Compute version from tag (GitVersion)
+        run: |
+          dotnet tool restore
+          APP_VERSION=$(dotnet tool run dotnet-gitversion /showvariable MajorMinorPatch)
+          echo "Computed version: ${APP_VERSION} (tag: ${GITHUB_REF_NAME})"
+          if [ "v${APP_VERSION}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::GitVersion (${APP_VERSION}) non coincide col tag (${GITHUB_REF_NAME})"
+            exit 1
+          fi
+          echo "APP_VERSION=${APP_VERSION}" >> $GITHUB_ENV
+
+      - name: Set lowercase image tag
+        run: |
+          echo "IMAGE_TAG=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):${{ github.ref_name }}" >> $GITHUB_ENV
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE_TAG }}
+          build-args: |
+            APP_VERSION=${{ env.APP_VERSION }}

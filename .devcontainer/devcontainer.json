@@ -1,0 +1,34 @@
+{
+  "name": "App Dev",
+  "image": "mcr.microsoft.com/devcontainers/dotnet:1-10.0",
+  "features": {
+    "ghcr.io/devcontainers/features/node:2": { "version": "lts" },
+    "ghcr.io/itsmechlark/features/postgresql:1": { "version": "16" },
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
+  "mounts": [
+    "source=claude-code-config-${devcontainerId},target=/home/vscode/.claude,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csdevkit",
+        "angular.ng-template",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-ossdata.vscode-pgsql",
+        "ms-playwright.playwright",
+        "GitHub.vscode-pull-request-github",
+        "GitHub.vscode-github-actions",
+        "redhat.vscode-yaml"
+      ]
+    }
+  },
+  "forwardPorts": [5281, 4200],
+  "portsAttributes": {
+    "5281": { "label": "Backend", "visibility": "private" },
+    "4200": { "label": "Frontend", "visibility": "private" }
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postStartCommand": "printf '\\n👉  Prima di iniziare, autentica Claude Code: lancia \\\"claude\\\" nel terminale e segui il prompt di login.\\n\\n'"
+}

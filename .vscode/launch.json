@@ -1,0 +1,33 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend (.NET)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "dotnet: build",
+      "program": "${workspaceFolder}/App/bin/Debug/net10.0/App.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/App",
+      "stopAtEntry": false,
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    {
+      "name": "Frontend (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:4200",
+      "preLaunchTask": "Run Frontend",
+      "webRoot": "${workspaceFolder}/App/frontend/src"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Backend + Frontend",
+      "configurations": ["Backend (.NET)", "Frontend (Chrome)"],
+      "stopAll": true
+    }
+  ]
+}

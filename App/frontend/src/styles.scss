@@ -1,0 +1,40 @@
+@use '@angular/material' as mat;
+@use './theme/theme-colors' as app-theme;
+
+html {
+  height: 100%;
+
+  // Punto unico della palette: il tema è generato dagli stessi seed del
+  // portale IntelliFlow (palette canonica MEDIT). Un cambio di brand si
+  // risolve rigenerando src/theme/_theme-colors.scss con
+  // `ng generate @angular/material:theme-color` e ricompilando.
+  @include mat.theme(
+    (
+      color: (
+        primary: app-theme.$primary-palette,
+        tertiary: app-theme.$tertiary-palette,
+        theme-type: light,
+      ),
+      typography: Roboto,
+      density: 0,
+    )
+  );
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  color-scheme: light;
+  background-color: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
+  height: 100%;
+}
+
+a {
+  color: var(--mat-sys-primary);
+}

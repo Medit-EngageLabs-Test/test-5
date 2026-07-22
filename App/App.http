@@ -1,0 +1,60 @@
+@App_HostAddress = http://localhost:5281
+
+### Health check
+GET {{App_HostAddress}}/health
+Accept: application/json
+
+###
+
+### List all contacts
+GET {{App_HostAddress}}/api/contacts
+Accept: application/json
+
+###
+
+### Search contacts
+GET {{App_HostAddress}}/api/contacts?q=mario
+Accept: application/json
+
+###
+
+### Get contact by id (replace with a real id)
+GET {{App_HostAddress}}/api/contacts/00000000-0000-0000-0000-000000000001
+Accept: application/json
+
+###
+
+### Create a contact
+POST {{App_HostAddress}}/api/contacts
+Content-Type: application/json
+
+{
+  "firstName": "Mario",
+  "lastName": "Rossi",
+  "email": "mario.rossi@example.com",
+  "phone": "+39 02 1234567",
+  "company": "Acme S.r.l.",
+  "role": "Responsabile IT"
+}
+
+###
+
+### Update a contact (replace id with a real one)
+PUT {{App_HostAddress}}/api/contacts/00000000-0000-0000-0000-000000000001
+Content-Type: application/json
+
+{
+  "firstName": "Mario",
+  "lastName": "Rossi",
+  "email": "mario.rossi@acme.com",
+  "phone": "+39 02 9876543",
+  "company": "Acme S.r.l.",
+  "role": "CTO"
+}
+
+###
+
+### Delete a contact (replace id with a real one)
+DELETE {{App_HostAddress}}/api/contacts/00000000-0000-0000-0000-000000000001
+
+###

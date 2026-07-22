@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, "index/**"]
+  # The push trigger serves the guards: a direct push to main (outside the Claude
+  # Code workflow, whose hooks already deny it) must not sneak the development
+  # bypass or a broken documentation link past them. The build job stays PR-only.
+  push:
+    branches: [main]
+
+jobs:
+  # Dev-bypass guard (AB#13584): the temporary development bypass — every file it
+  # touches carries the sentinel marker prescribed by the iam capability — must
+  # never reach main. PRs to index/** skip the guard: the bypass is legitimate
+  # there (development and collaudo happen on the index branch). The marker
+  # literal lives only in the guard script, so this workflow stays scannable.
+  dev-bypass-guard:
+    if: github.event_name == 'push' || github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Block the development bypass on main
+        run: bash .github/scripts/dev-bypass-guard.sh
+
+  # Documentation link guard (agent-friendliness, ported from portal PR #77 /
+  # AB#13661): a broken relative Markdown link in the docs must not reach main or
+  # an index branch. Unlike the dev-bypass guard there is no branch exemption — a
+  # dangling link is never legitimate — so this runs on every trigger, including
+  # index/** PRs. The docs an agent reads cold each session must stay honest.
+  doc-link-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check relative documentation links resolve
+        run: bash .github/scripts/doc-links-guard.sh
+
+  detect:
+    uses: ./.github/workflows/detect-repo-role.yml
+
+  # Runs only for instantiated Apps — never for app-template itself, which is
+  # validated by template-ci.yml instead. See detect-repo-role.yml.
+  build:
+    needs: detect
+    if: github.event_name == 'pull_request' && needs.detect.outputs.is_template == 'false'
+    uses: ./.github/workflows/build.yml
+
+  # CodeQL è disabilitato temporaneamente: richiede GitHub Advanced Security,
+  # disponibile solo dopo l'attivazione dell'org GitHub di produzione.
+  # Riabitlitare seguendo le istruzioni nell'issue dedicato.
+  #
+  # codeql:
+  #   name: CodeQL
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     actions: read
+  #     contents: read
+  #     security-events: write
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #
+  #     - name: Initialize CodeQL
+  #       uses: github/codeql-action/init@v4
+  #       with:
+  #         languages: csharp, javascript
+  #
+  #     - name: Setup .NET
+  #       uses: actions/setup-dotnet@v5
+  #       with:
+  #         dotnet-version: "10.0.x"
+  #
+  #     - name: Build
+  #       run: dotnet build App.sln --configuration Release
+  #
+  #     - name: Analyze
+  #       uses: github/codeql-action/analyze@v4

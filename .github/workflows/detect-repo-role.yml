@@ -1,0 +1,24 @@
+name: Detect repo role
+
+on:
+  workflow_call:
+    outputs:
+      is_template:
+        description: "true if this checkout is the app-template scaffold itself, not an instantiated App"
+        value: ${{ jobs.detect.outputs.is_template }}
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      is_template: ${{ steps.check.outputs.is_template }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: check
+        run: |
+          if [ -f .template-repo ]; then
+            echo "is_template=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_template=false" >> "$GITHUB_OUTPUT"
+          fi

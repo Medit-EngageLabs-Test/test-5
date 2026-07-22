@@ -1,0 +1,12 @@
+[
+  {
+    "value": "Contacts.Admin",
+    "displayName": "Contacts Admin",
+    "description": "Full access to contacts including deletion. Includes all Contacts.Writer permissions."
+  },
+  {
+    "value": "Contacts.Writer",
+    "displayName": "Contacts Writer",
+    "description": "Can create and edit contacts, but cannot delete them."
+  }
+]

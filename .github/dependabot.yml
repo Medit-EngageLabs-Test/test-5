@@ -1,0 +1,80 @@
+# To get started with Dependabot version updates, you'll need to specify which
+# package ecosystems to update and where the package manifests are located.
+# Please see the documentation for more information:
+# https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+# https://containers.dev/guide/dependabot
+
+version: 2
+updates:
+  # Immagine e feature del devcontainer (Codespaces / sviluppo locale)
+  - package-ecosystem: "devcontainers"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # Immagini base usate nel Dockerfile multi-stage (frontend/build/runtime)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # Azioni GitHub usate nei workflow in .github/workflows (build, bundle, ci, deploy)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # Pacchetti NuGet: App.sln referenzia sia App che App.Tests
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    # Niente PR per major-version: i major di backend rompono la build e vanno
+    # affrontati deliberatamente, non tramite una PR automatica. Patch e minor
+    # continuano ad arrivare.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # Pacchetti npm del frontend Angular
+  - package-ecosystem: "npm"
+    directory: "/App/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    # Niente PR per major-version: i major di frontend (es. Angular, TypeScript)
+    # rompono la build e vanno affrontati deliberatamente, non tramite una PR
+    # automatica. Patch e minor continuano ad arrivare.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      angular:
+        patterns:
+          - "@angular/*"
+      lint-and-format:
+        patterns:
+          - "eslint*"
+          - "@eslint/*"
+          - "angular-eslint"
+          - "typescript-eslint"
+          - "prettier"
+    commit-message:
+      prefix: "chore"
+      include: "scope"

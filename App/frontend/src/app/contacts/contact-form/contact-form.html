@@ -1,0 +1,80 @@
+<header class="page-header">
+  <h1>{{ isNew() ? 'Nuovo contatto' : 'Modifica contatto' }}</h1>
+  <a mat-button routerLink="/contacts">
+    <mat-icon>arrow_back</mat-icon>
+    Torna alla lista
+  </a>
+</header>
+
+<form [formGroup]="form" (ngSubmit)="save()" novalidate>
+  <div class="form-row">
+    <mat-form-field appearance="outline">
+      <mat-label>Nome</mat-label>
+      <input
+        matInput
+        id="firstName"
+        type="text"
+        formControlName="firstName"
+        autocomplete="given-name"
+        required
+      />
+      <mat-error>Il nome è obbligatorio</mat-error>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Cognome</mat-label>
+      <input
+        matInput
+        id="lastName"
+        type="text"
+        formControlName="lastName"
+        autocomplete="family-name"
+        required
+      />
+      <mat-error>Il cognome è obbligatorio</mat-error>
+    </mat-form-field>
+  </div>
+
+  <div class="form-row">
+    <mat-form-field appearance="outline">
+      <mat-label>Email</mat-label>
+      <input matInput id="email" type="email" formControlName="email" autocomplete="email" />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Telefono</mat-label>
+      <input matInput id="phone" type="tel" formControlName="phone" autocomplete="tel" />
+    </mat-form-field>
+  </div>
+
+  <div class="form-row">
+    <mat-form-field appearance="outline">
+      <mat-label>Azienda</mat-label>
+      <input
+        matInput
+        id="company"
+        type="text"
+        formControlName="company"
+        autocomplete="organization"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Ruolo</mat-label>
+      <input
+        matInput
+        id="role"
+        type="text"
+        formControlName="role"
+        autocomplete="organization-title"
+      />
+    </mat-form-field>
+  </div>
+
+  <div class="form-actions">
+    <button mat-flat-button type="submit" [disabled]="saving()">
+      {{ saving() ? 'Salvataggio…' : 'Salva' }}
+    </button>
+    <a mat-button routerLink="/contacts">Annulla</a>
+  </div>
+</form>
