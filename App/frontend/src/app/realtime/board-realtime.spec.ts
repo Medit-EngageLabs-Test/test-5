@@ -18,6 +18,7 @@ import { BoardRealtimeService } from './board-realtime';
 const state = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => void>(),
   reconnectedHandler: undefined as (() => void) | undefined,
+  closeHandler: undefined as (() => void) | undefined,
   startCallCount: 0,
   startBehavior: (() => Promise.resolve()) as () => Promise<void>,
 }));
@@ -39,6 +40,9 @@ vi.mock('@microsoft/signalr', () => {
         },
         onreconnected: (handler: () => void) => {
           state.reconnectedHandler = handler;
+        },
+        onclose: (handler: () => void) => {
+          state.closeHandler = handler;
         },
         start: () => {
           state.startCallCount++;
@@ -62,6 +66,7 @@ describe('BoardRealtimeService', () => {
   beforeEach(() => {
     state.handlers.clear();
     state.reconnectedHandler = undefined;
+    state.closeHandler = undefined;
     state.startCallCount = 0;
     state.startBehavior = () => Promise.resolve();
     vi.useRealTimers();
@@ -108,6 +113,30 @@ describe('BoardRealtimeService', () => {
     state.reconnectedHandler?.();
 
     expect(realigned).toHaveBeenCalledTimes(1);
+  });
+
+  it('onclose (riconnessione automatica esaurita) azzera connected(), rilancia connect() e riallinea al successo', async () => {
+    const service = new BoardRealtimeService();
+    const realigned = vi.fn();
+    service.realigned$.subscribe(realigned);
+    await flush();
+    expect(service.connected()).toBe(true);
+    expect(realigned).toHaveBeenCalledTimes(1);
+    expect(state.startCallCount).toBe(1);
+
+    // withAutomaticReconnect()'s own schedule (~4 attempts by default) has exhausted itself and
+    // given up — the connection settles into Disconnected for good and fires onclose. Without a
+    // fix, nothing here restarts connect()'s loop and connected() keeps lying that it's still up.
+    state.closeHandler?.();
+
+    expect(service.connected()).toBe(false);
+
+    // connect()'s own retry loop restarts from onclose — a fresh, successful start() here.
+    await flush();
+
+    expect(state.startCallCount).toBe(2);
+    expect(service.connected()).toBe(true);
+    expect(realigned).toHaveBeenCalledTimes(2);
   });
 
   it.each([
