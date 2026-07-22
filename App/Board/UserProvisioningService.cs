@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace App.Board;
 
@@ -44,36 +45,54 @@ public class UserProvisioningService(AppDbContext db) : IUserProvisioningService
     {
         var oid = principal.FindFirstValue(ObjectIdClaim) ?? principal.FindFirstValue(SubjectClaim);
         if (string.IsNullOrWhiteSpace(oid))
-            return await GetOrCreateSyntheticUserAsync(cancellationToken);
+            return await GetOrCreateUserAsync(LocalDevOid, LocalDevDisplayName, email: null, cancellationToken);
 
         var displayName = principal.FindFirstValue(NameClaim);
         var email = principal.FindFirstValue(EmailClaim);
+        return await GetOrCreateUserAsync(oid, displayName, email, cancellationToken);
+    }
 
+    /// <summary>
+    /// Race-safe upsert by <paramref name="oid"/> — the one path both the real-identity branch
+    /// and the open-mode synthetic User (<see cref="LocalDevOid"/>) go through, since both faced
+    /// the same race: two concurrent requests for the same brand-new <paramref name="oid"/> (a
+    /// User's very first sign-in, or the synthetic User's very first request) both read no
+    /// existing row via <c>SingleOrDefaultAsync</c>, both <c>Add</c>, and only one
+    /// <c>SaveChangesAsync</c> can win — <c>IX_Users_Oid</c>'s unique index rejects the loser with
+    /// Postgres error 23505 (unique_violation), which used to surface as an unhandled 500.
+    /// </summary>
+    private async System.Threading.Tasks.Task<User> GetOrCreateUserAsync(
+        string oid,
+        string? displayName,
+        string? email,
+        CancellationToken cancellationToken)
+    {
         var user = await db.Users.SingleOrDefaultAsync(u => u.Oid == oid, cancellationToken);
         if (user is null)
         {
             user = new User { Oid = oid, DisplayName = displayName, Email = email };
             db.Users.Add(user);
+
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+                return user;
+            }
+            catch (DbUpdateException e) when (e.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+            {
+                // The concurrent winner's row is now committed and visible. This context still
+                // tracks `user` as Added — a failed SaveChangesAsync does not revert that — so it
+                // must be detached first: left tracked, the re-query below would just hand back
+                // this same (never-inserted) instance instead of hitting the database, and any
+                // later SaveChangesAsync on this context would retry the same doomed insert.
+                db.Entry(user).State = EntityState.Detached;
+                return await db.Users.SingleAsync(u => u.Oid == oid, cancellationToken);
+            }
         }
-        else
-        {
-            user.DisplayName = displayName;
-            user.Email = email;
-            user.UpdatedAt = DateTime.UtcNow;
-        }
 
-        await db.SaveChangesAsync(cancellationToken);
-        return user;
-    }
-
-    private async System.Threading.Tasks.Task<User> GetOrCreateSyntheticUserAsync(CancellationToken cancellationToken)
-    {
-        var user = await db.Users.SingleOrDefaultAsync(u => u.Oid == LocalDevOid, cancellationToken);
-        if (user is not null)
-            return user;
-
-        user = new User { Oid = LocalDevOid, DisplayName = LocalDevDisplayName };
-        db.Users.Add(user);
+        user.DisplayName = displayName;
+        user.Email = email;
+        user.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
         return user;
     }
