@@ -102,13 +102,18 @@ test.describe('Conversazione sulle Attività (F4, ticket #18)', () => {
     await page.getByRole('button', { name: 'Invia' }).click();
     await expect(page.getByRole('dialog').getByText(message)).toBeVisible();
 
-    await page.getByRole('button', { name: 'Elimina messaggio' }).click();
-    await expect(page.getByRole('dialog')).toBeVisible();
-    await page.getByRole('button', { name: 'Elimina', exact: true }).click();
+    // Two dialogs coexist once the confirm opens over the detail panel: scope each assertion to
+    // the one it means, or getByRole('dialog') hits a strict-mode violation (resolves to 2).
+    const detailDialog = page.getByRole('dialog', { name: title });
+    const confirmDialog = page.getByRole('dialog', { name: 'Eliminare questo messaggio?' });
 
-    await expect(page.getByRole('dialog').getByText(message)).toHaveCount(0);
-    await page.getByRole('dialog').getByRole('button', { name: 'Chiudi' }).click();
-    await expect(page.getByRole('dialog')).toBeHidden();
+    await detailDialog.getByRole('button', { name: 'Elimina messaggio' }).click();
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole('button', { name: 'Elimina', exact: true }).click();
+
+    await expect(detailDialog.getByText(message)).toHaveCount(0);
+    await detailDialog.getByRole('button', { name: 'Chiudi' }).click();
+    await expect(detailDialog).toBeHidden();
     await expect(card.getByLabel('Commenti')).toContainText('0');
   });
 });
