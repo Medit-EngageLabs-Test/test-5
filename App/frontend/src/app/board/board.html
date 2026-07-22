@@ -24,7 +24,13 @@
           <p class="empty-state">Nessuna Attività qui.</p>
         } @else {
           @for (task of tasksFor(column.status); track task.id) {
-            <div class="task-card-drag" cdkDrag [cdkDragData]="task">
+            <div
+              class="task-card-drag"
+              cdkDrag
+              [cdkDragData]="task"
+              (cdkDragStarted)="onDragStarted()"
+              (cdkDragEnded)="onDragEnded()"
+            >
               <app-task-card
                 [task]="task"
                 (editRequested)="openEditDialog(task)"

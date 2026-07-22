@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using App.Realtime;
 using App.Storage;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace App.Board;
@@ -95,6 +97,7 @@ public static class AttachmentsEndpoints
         AppDbContext db,
         IObjectStore objectStore,
         IUserProvisioningService userProvisioning,
+        IHubContext<BoardHub, IBoardClient> hub,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
     {
@@ -102,7 +105,7 @@ public static class AttachmentsEndpoints
         if (task is null)
             return Results.NotFound();
 
-        return await SaveAttachmentAsync(file, taskId, commentId: null, db, objectStore, userProvisioning, user, loggerFactory);
+        return await SaveAttachmentAsync(file, taskId, commentId: null, db, objectStore, userProvisioning, hub, user, loggerFactory);
     }
 
     /// <summary>Uploads a file to a Comment (ticket #21): same validations as
@@ -114,6 +117,7 @@ public static class AttachmentsEndpoints
         AppDbContext db,
         IObjectStore objectStore,
         IUserProvisioningService userProvisioning,
+        IHubContext<BoardHub, IBoardClient> hub,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
     {
@@ -121,7 +125,7 @@ public static class AttachmentsEndpoints
         if (comment is null)
             return Results.NotFound();
 
-        return await SaveAttachmentAsync(file, comment.TaskId, commentId, db, objectStore, userProvisioning, user, loggerFactory);
+        return await SaveAttachmentAsync(file, comment.TaskId, commentId, db, objectStore, userProvisioning, hub, user, loggerFactory);
     }
 
     /// <summary>Shared validation + save path, reused by the Comment upload endpoint (ticket #21).</summary>
@@ -132,6 +136,7 @@ public static class AttachmentsEndpoints
         AppDbContext db,
         IObjectStore objectStore,
         IUserProvisioningService userProvisioning,
+        IHubContext<BoardHub, IBoardClient> hub,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
     {
@@ -168,6 +173,9 @@ public static class AttachmentsEndpoints
         await db.SaveChangesAsync();
 
         _attachmentUploaded(logger, attachment.Id, taskId, null);
+        // F6 (ticket #24): see BoardHub's own doc on why this carries only the ids (also updates
+        // the Board card's 📎 badge on every connected client).
+        await hub.Clients.All.AttachmentAdded(taskId, attachment.Id);
         // The uploader can always delete their own just-uploaded Attachment — no need to
         // re-resolve the moderator check ListAttachments performs for arbitrary Attachments.
         return Results.Created(
@@ -213,6 +221,7 @@ public static class AttachmentsEndpoints
         AppDbContext db,
         IObjectStore objectStore,
         IUserProvisioningService userProvisioning,
+        IHubContext<BoardHub, IBoardClient> hub,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
     {
@@ -230,10 +239,15 @@ public static class AttachmentsEndpoints
         var logger = loggerFactory.CreateLogger(LogCategory);
         await DeleteStorageObjectsBestEffortAsync([attachment.StorageKey], objectStore, logger);
 
+        // Captured before Remove/SaveChanges, mirroring DeleteComment's own broadcast capture.
+        var taskId = attachment.TaskId;
+
         db.Attachments.Remove(attachment);
         await db.SaveChangesAsync();
 
         _attachmentDeleted(logger, attachment.Id, null);
+        // F6 (ticket #24): see BoardHub's own doc on why this carries only the ids.
+        await hub.Clients.All.AttachmentRemoved(taskId, attachment.Id);
         return Results.NoContent();
     }
 

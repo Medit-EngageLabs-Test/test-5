@@ -1,9 +1,39 @@
 import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { CdkDragDrop } from '@angular/cdk/drag-drop';
-import { of } from 'rxjs';
+import { of, Subject } from 'rxjs';
 import { Board } from './board';
 import { TasksService } from './tasks';
 import { Task, TaskStatus } from './task.model';
+import {
+  BoardRealtimeService,
+  AttachmentRealtimeEvent,
+  CommentRealtimeEvent,
+  TaskRealtimeEvent,
+} from '../realtime/board-realtime';
+
+/**
+ * A fake BoardRealtimeService (F6): every stream is its own Subject a test can push into,
+ * instead of the real service's hub connection attempting a network call in a unit test.
+ */
+function makeFakeRealtimeService() {
+  return {
+    // Board's quiescent() reads connected() every change-detection cycle — a plain boolean
+    // signal, never toggled false, is enough for these tests: none of them exercise the
+    // data-realtime-quiescent host attribute itself (that's the two-client E2E's job).
+    connected: signal(true),
+    taskCreated$: new Subject<TaskRealtimeEvent>(),
+    taskUpdated$: new Subject<TaskRealtimeEvent>(),
+    taskMoved$: new Subject<TaskRealtimeEvent>(),
+    taskDeleted$: new Subject<TaskRealtimeEvent>(),
+    commentAdded$: new Subject<CommentRealtimeEvent>(),
+    commentUpdated$: new Subject<CommentRealtimeEvent>(),
+    commentDeleted$: new Subject<CommentRealtimeEvent>(),
+    attachmentAdded$: new Subject<AttachmentRealtimeEvent>(),
+    attachmentRemoved$: new Subject<AttachmentRealtimeEvent>(),
+    realigned$: new Subject<void>(),
+  };
+}
 
 /**
  * Reaches Board's protected onDrop() — bracket notation is TypeScript's documented escape
@@ -19,6 +49,15 @@ function callOnDrop(
       onDrop: (e: CdkDragDrop<Task[]>, s: TaskStatus) => void;
     }
   ).onDrop(event, status);
+}
+
+/** Reaches Board's protected onDragStarted()/onDragEnded() — same bracket-notation pattern as callOnDrop. */
+function startDrag(fixture: { componentInstance: Board }): void {
+  (fixture.componentInstance as unknown as { onDragStarted: () => void }).onDragStarted();
+}
+
+function endDrag(fixture: { componentInstance: Board }): void {
+  (fixture.componentInstance as unknown as { onDragEnded: () => void }).onDragEnded();
 }
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
@@ -40,10 +79,14 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
 
 async function setup(tasks: Task[], tasksServiceOverrides: Record<string, unknown> = {}) {
   const tasksService = { list: vi.fn().mockReturnValue(of(tasks)), ...tasksServiceOverrides };
+  const realtimeService = makeFakeRealtimeService();
 
   await TestBed.configureTestingModule({
     imports: [Board],
-    providers: [{ provide: TasksService, useValue: tasksService }],
+    providers: [
+      { provide: TasksService, useValue: tasksService },
+      { provide: BoardRealtimeService, useValue: realtimeService },
+    ],
   }).compileComponents();
 
   const fixture = TestBed.createComponent(Board);
@@ -54,7 +97,7 @@ async function setup(tasks: Task[], tasksServiceOverrides: Record<string, unknow
   const column = (label: string) =>
     element.querySelector(`.board-column[aria-label="${label}"]`) as HTMLElement;
 
-  return { fixture, element, column, tasksService };
+  return { fixture, element, column, tasksService, realtimeService };
 }
 
 describe('Board', () => {
@@ -178,5 +221,126 @@ describe('Board', () => {
     );
 
     expect(updateStatus).not.toHaveBeenCalled();
+  });
+
+  // ── F6 — Aggiornamenti in tempo reale (ticket #23/#24) ─────────────────────────
+
+  it('un evento taskCreated$ da un altro client ricarica la board', async () => {
+    const { tasksService, realtimeService } = await setup([]);
+    expect(tasksService.list).toHaveBeenCalledTimes(1); // initial load only
+
+    realtimeService.taskCreated$.next({ taskId: 'from-another-client' });
+
+    expect(tasksService.list).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['taskUpdated$', { taskId: 't-1' }] as const,
+    ['taskMoved$', { taskId: 't-1' }] as const,
+    ['taskDeleted$', { taskId: 't-1' }] as const,
+    ['commentAdded$', { taskId: 't-1', commentId: 'c-1' }] as const,
+    ['commentDeleted$', { taskId: 't-1', commentId: 'c-1' }] as const,
+    ['attachmentAdded$', { taskId: 't-1', attachmentId: 'a-1' }] as const,
+    ['attachmentRemoved$', { taskId: 't-1', attachmentId: 'a-1' }] as const,
+    ['realigned$', undefined] as const,
+  ])('un evento %s ricarica la board (contatori 💬/📎 inclusi)', async (stream, payload) => {
+    const { tasksService, realtimeService } = await setup([]);
+    expect(tasksService.list).toHaveBeenCalledTimes(1);
+
+    (
+      realtimeService[stream as keyof typeof realtimeService] as { next: (value: unknown) => void }
+    ).next(payload);
+
+    expect(tasksService.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('un evento commentUpdated$ NON ricarica la board — non cambia alcun contatore', async () => {
+    const { tasksService, realtimeService } = await setup([]);
+    expect(tasksService.list).toHaveBeenCalledTimes(1);
+
+    realtimeService.commentUpdated$.next({ taskId: 't-1', commentId: 'c-1' });
+
+    expect(tasksService.list).toHaveBeenCalledTimes(1);
+  });
+
+  // ── F6 — data-realtime-quiescent (ticket #23 fix-up): gate per il drag E2E a due client ────
+
+  it('data-realtime-quiescent è "false" finché l’hub non si è mai connesso', async () => {
+    const { fixture, element, realtimeService } = await setup([]);
+    realtimeService.connected.set(false);
+    fixture.detectChanges();
+
+    expect(element.getAttribute('data-realtime-quiescent')).toBe('false');
+  });
+
+  it('data-realtime-quiescent è "true" quando connesso e nessun refresh è in corso', async () => {
+    const { element } = await setup([]);
+
+    expect(element.getAttribute('data-realtime-quiescent')).toBe('true');
+  });
+
+  it('data-realtime-quiescent torna "false" durante il refresh scatenato da un evento realtime, poi "true" a fetch completato', async () => {
+    const pending = new Subject<Task[]>();
+    let calls = 0;
+    const list = vi.fn(() => (calls++ === 0 ? of([]) : pending));
+    const { fixture, element, realtimeService } = await setup([], { list });
+    expect(element.getAttribute('data-realtime-quiescent')).toBe('true');
+
+    realtimeService.taskCreated$.next({ taskId: 'from-another-client' });
+    fixture.detectChanges();
+    expect(element.getAttribute('data-realtime-quiescent')).toBe('false');
+
+    pending.next([]);
+    pending.complete();
+    fixture.detectChanges();
+    expect(element.getAttribute('data-realtime-quiescent')).toBe('true');
+  });
+
+  it('un refresh già in volo prima del drag, che risponde DURANTE il drag, non sostituisce le task sotto il puntatore — il refresh differito si applica una volta sola a fine drag', async () => {
+    // The GET is dispatched by a realtime event *before* the drag starts — exactly the real bug's
+    // shape: a pre-drag quiescence gate cannot help here, since the request already left before
+    // dragging began. Only guarding the moment the response is *applied* (not when it was sent)
+    // can catch it.
+    const originalTask = makeTask({ id: '1', status: 'ToDo', title: 'Originale' });
+    const midDragTask = makeTask({ id: '1', status: 'ToDo', title: 'Arrivata durante il drag' });
+    const catchUpTask = makeTask({
+      id: '1',
+      status: 'ToDo',
+      title: 'Refresh differito a fine drag',
+    });
+    const inFlight = new Subject<Task[]>();
+    const list = vi
+      .fn()
+      .mockReturnValueOnce(of([originalTask])) // initial load
+      .mockReturnValueOnce(inFlight) // dispatched before the drag, resolves mid-drag
+      .mockReturnValueOnce(of([catchUpTask])); // the one-shot deferred refresh from onDragEnded
+    const { fixture, element, realtimeService } = await setup([], { list });
+
+    // Dispatches the in-flight GET (call #2) before the drag begins.
+    realtimeService.taskCreated$.next({ taskId: 'from-another-client' });
+    expect(list).toHaveBeenCalledTimes(2);
+
+    startDrag(fixture);
+
+    // The already-in-flight GET resolves while dragging is active.
+    inFlight.next([midDragTask]);
+    inFlight.complete();
+    fixture.detectChanges();
+
+    // Apply-site guard: the response must not replace the list while dragging, even though it
+    // was already in flight — resolving it must not itself dispatch a new GET either.
+    expect(element.textContent).toContain('Originale');
+    expect(element.textContent).not.toContain('Arrivata durante il drag');
+    expect(list).toHaveBeenCalledTimes(2);
+
+    endDrag(fixture);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The queued refresh is applied exactly once more, post-drag, with fresh data — the
+    // mid-drag response itself is discarded, never re-applied late.
+    expect(list).toHaveBeenCalledTimes(3);
+    expect(element.textContent).toContain('Refresh differito a fine drag');
+    expect(element.textContent).not.toContain('Arrivata durante il drag');
   });
 });

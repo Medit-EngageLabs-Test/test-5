@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using App.Realtime;
 using App.Storage;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace App.Board;
@@ -93,6 +95,7 @@ public static class CommentsEndpoints
         CreateCommentRequest request,
         AppDbContext db,
         IUserProvisioningService userProvisioning,
+        IHubContext<BoardHub, IBoardClient> hub,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
     {
@@ -117,6 +120,9 @@ public static class CommentsEndpoints
         await db.SaveChangesAsync();
 
         _commentCreated(logger, comment.Id, taskId, null);
+        // F6 (ticket #24): broadcast after the save commits — see BoardHub's own doc on why this
+        // carries only the ids (also updates the Board card's 💬 badge on every connected client).
+        await hub.Clients.All.CommentAdded(taskId, comment.Id);
         // Author is already in hand — no need to re-query/Include it like ListComments does.
         comment.Author = author;
         // The author can always edit/delete their own just-written Comment — no need to
@@ -137,6 +143,7 @@ public static class CommentsEndpoints
         UpdateCommentRequest request,
         AppDbContext db,
         IUserProvisioningService userProvisioning,
+        IHubContext<BoardHub, IBoardClient> hub,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
     {
@@ -158,6 +165,8 @@ public static class CommentsEndpoints
         await db.SaveChangesAsync();
 
         _commentUpdated(logger, comment.Id, null);
+        // F6 (ticket #24): see CreateComment's comment on why this carries only the ids.
+        await hub.Clients.All.CommentUpdated(comment.TaskId, comment.Id);
         // The caller just proved they are the author — moderator status is irrelevant to canEdit
         // (author-only, no override) and canDelete is true either way (author OR moderator).
         return Results.Ok(CommentResponse.From(comment, canEdit: true, canDelete: true));
@@ -181,6 +190,7 @@ public static class CommentsEndpoints
         AppDbContext db,
         IObjectStore objectStore,
         IUserProvisioningService userProvisioning,
+        IHubContext<BoardHub, IBoardClient> hub,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory)
     {
@@ -203,10 +213,17 @@ public static class CommentsEndpoints
             .ToListAsync();
         await AttachmentsEndpoints.DeleteStorageObjectsBestEffortAsync(storageKeys, objectStore, logger);
 
+        // Captured before Remove/SaveChanges: TaskId is still readable off the tracked entity
+        // afterwards too, but capturing it here keeps the broadcast call below self-contained.
+        var taskId = comment.TaskId;
+
         db.Comments.Remove(comment);
         await db.SaveChangesAsync();
 
         _commentDeleted(logger, comment.Id, null);
+        // F6 (ticket #24): see CreateComment's comment on why this carries only the ids — its
+        // Attachments (cascaded at the row level) are gone by now regardless.
+        await hub.Clients.All.CommentDeleted(taskId, comment.Id);
         return Results.NoContent();
     }
 
