@@ -59,8 +59,9 @@ export class BoardRealtimeService {
   private readonly connectedSignal = signal(false);
 
   /**
-   * True once the hub connection has been established at least once. Exposed as a signal (not
-   * just an event) so a consumer can gate an action on the current state, not only future
+   * True while the hub connection is up — set on every successful `start()` (first connect or
+   * a manual reconnect below) and cleared the moment it closes for good. Exposed as a signal
+   * (not just an event) so a consumer can gate an action on the current state, not only future
    * transitions — the Board uses it (with its own quiescent-refresh state) to expose a
    * `data-realtime-quiescent` host attribute the two-client E2E waits on before dragging: without
    * it, a slow first connect can fire `realigned$`'s refresh mid-gesture, on the exact same list
@@ -115,13 +116,27 @@ export class BoardRealtimeService {
       this.attachmentRemovedSubject.next({ taskId, attachmentId }),
     );
     this.connection.onreconnected(() => this.realignedSubject.next());
+    // withAutomaticReconnect()'s own schedule (~4 attempts over ~30-42s by default) eventually
+    // gives up: the connection then settles into Disconnected for good, onreconnected never
+    // fires again, and realigned$ goes silent — the Board would go stale until a manual reload,
+    // which ADR-0001 rules out for a "live vero" board. onclose only fires once automatic
+    // reconnect is fully exhausted (never during a plain Reconnecting blip, per the SignalR
+    // docs), i.e. strictly *after* a prior successful start() — so by the time it can ever fire,
+    // connect()'s own initial-connect retry loop below has already stopped retrying, and the two
+    // can never run concurrently. Restarting that same loop from here is what makes resilience
+    // not depend on automatic reconnect's fixed attempt count.
+    this.connection.onclose(() => {
+      this.connectedSignal.set(false);
+      void this.connect();
+    });
 
     void this.connect();
   }
 
   /**
    * Starts the connection, retrying by hand on failure: `withAutomaticReconnect()` only takes
-   * over once a connection has been established at least once.
+   * over once a connection has been established at least once — and, per this same method's
+   * `onclose` registration above, once more after a definitive disconnect too.
    */
   private async connect(): Promise<void> {
     try {
