@@ -51,6 +51,15 @@ function callOnDrop(
   ).onDrop(event, status);
 }
 
+/** Reaches Board's protected onDragStarted()/onDragEnded() — same bracket-notation pattern as callOnDrop. */
+function startDrag(fixture: { componentInstance: Board }): void {
+  (fixture.componentInstance as unknown as { onDragStarted: () => void }).onDragStarted();
+}
+
+function endDrag(fixture: { componentInstance: Board }): void {
+  (fixture.componentInstance as unknown as { onDragEnded: () => void }).onDragEnded();
+}
+
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
     title: `Task ${overrides.id}`,
@@ -285,5 +294,53 @@ describe('Board', () => {
     pending.complete();
     fixture.detectChanges();
     expect(element.getAttribute('data-realtime-quiescent')).toBe('true');
+  });
+
+  it('un refresh già in volo prima del drag, che risponde DURANTE il drag, non sostituisce le task sotto il puntatore — il refresh differito si applica una volta sola a fine drag', async () => {
+    // The GET is dispatched by a realtime event *before* the drag starts — exactly the real bug's
+    // shape: a pre-drag quiescence gate cannot help here, since the request already left before
+    // dragging began. Only guarding the moment the response is *applied* (not when it was sent)
+    // can catch it.
+    const originalTask = makeTask({ id: '1', status: 'ToDo', title: 'Originale' });
+    const midDragTask = makeTask({ id: '1', status: 'ToDo', title: 'Arrivata durante il drag' });
+    const catchUpTask = makeTask({
+      id: '1',
+      status: 'ToDo',
+      title: 'Refresh differito a fine drag',
+    });
+    const inFlight = new Subject<Task[]>();
+    const list = vi
+      .fn()
+      .mockReturnValueOnce(of([originalTask])) // initial load
+      .mockReturnValueOnce(inFlight) // dispatched before the drag, resolves mid-drag
+      .mockReturnValueOnce(of([catchUpTask])); // the one-shot deferred refresh from onDragEnded
+    const { fixture, element, realtimeService } = await setup([], { list });
+
+    // Dispatches the in-flight GET (call #2) before the drag begins.
+    realtimeService.taskCreated$.next({ taskId: 'from-another-client' });
+    expect(list).toHaveBeenCalledTimes(2);
+
+    startDrag(fixture);
+
+    // The already-in-flight GET resolves while dragging is active.
+    inFlight.next([midDragTask]);
+    inFlight.complete();
+    fixture.detectChanges();
+
+    // Apply-site guard: the response must not replace the list while dragging, even though it
+    // was already in flight — resolving it must not itself dispatch a new GET either.
+    expect(element.textContent).toContain('Originale');
+    expect(element.textContent).not.toContain('Arrivata durante il drag');
+    expect(list).toHaveBeenCalledTimes(2);
+
+    endDrag(fixture);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The queued refresh is applied exactly once more, post-drag, with fresh data — the
+    // mid-drag response itself is discarded, never re-applied late.
+    expect(list).toHaveBeenCalledTimes(3);
+    expect(element.textContent).toContain('Refresh differito a fine drag');
+    expect(element.textContent).not.toContain('Arrivata durante il drag');
   });
 });

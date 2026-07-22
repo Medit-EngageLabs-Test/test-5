@@ -67,6 +67,15 @@ export class Board {
   // quiescent(), which the `data-realtime-quiescent` host attribute exposes.
   private readonly refreshing = signal(false);
 
+  // True between cdkDragStarted and cdkDragEnded. Not a signal: read only inside refresh()'s
+  // apply-site guard and the drag handlers below, never bound to the template — no reactivity
+  // needed. See refresh()'s own doc for why this guards the *apply* site, not just the trigger.
+  private dragging = false;
+
+  // Set when a refresh() response is discarded because it arrived while dragging — onDragEnded
+  // applies it (via one fresh refresh(), not by re-using the discarded response) exactly once.
+  private pendingRefresh = false;
+
   /**
    * True once the hub has connected at least once AND no refresh() is in flight (F6, ticket #23):
    * a two-client E2E dragging on a client while this is false risks the drop landing on stale,
@@ -130,15 +139,50 @@ export class Board {
     this.doneVisibleCount.update((count) => count + DONE_PAGE_SIZE);
   }
 
+  /**
+   * Re-fetches the Board's Tasks. The guard below sits at the *apply* site — inside the GET's
+   * own `next` callback — rather than on whatever triggered the refresh: a request already in
+   * flight *before* the drag started (e.g. a realtime event that raced a slow hub reconnect,
+   * ADR-0001) can still resolve mid-drag, and gating only the trigger would let that response
+   * through anyway. Replacing `tasks()` while `dragging` is true would reshuffle the list's
+   * positions under the pointer mid-gesture — CDK then computes the drop against bounding boxes
+   * that no longer match anything, silently landing the card back where it started instead of
+   * erroring (no PATCH, no TaskMoved broadcast, nothing for another client to ever see). The
+   * response itself is discarded, not queued for replay: onDragEnded fires one fresh refresh()
+   * instead, so the Board never applies data that was already stale by the time the drag ended.
+   */
   private refresh(): void {
     this.refreshing.set(true);
     this.#tasksService.list().subscribe({
       next: (tasks) => {
-        this.tasks.set(tasks);
         this.refreshing.set(false);
+        if (this.dragging) {
+          this.pendingRefresh = true;
+          return;
+        }
+        this.tasks.set(tasks);
       },
       error: () => this.refreshing.set(false),
     });
+  }
+
+  /** CDK fires this the instant a drag gesture begins (see refresh()'s own doc). */
+  protected onDragStarted(): void {
+    this.dragging = true;
+  }
+
+  /**
+   * CDK fires this once a drag gesture ends, drop or cancel alike. Applies a refresh queued
+   * while dragging exactly once, with fresh data rather than the discarded response — the
+   * legitimate post-move refresh (onDrop's own updateStatus().subscribe) runs independently,
+   * after `dragging` is already false here, so it is never itself swallowed by this guard.
+   */
+  protected onDragEnded(): void {
+    this.dragging = false;
+    if (this.pendingRefresh) {
+      this.pendingRefresh = false;
+      this.refresh();
+    }
   }
 
   /** Opens the create dialog (ticket #14). */
