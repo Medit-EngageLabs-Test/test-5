@@ -8,10 +8,6 @@
  * becomes a compile error instead of a silently dead check.
  */
 export const AppRoles = {
-  /** Full access to contacts including deletion. Includes all Contacts.Writer permissions. */
-  ContactsAdmin: 'Contacts.Admin',
-  /** Can create and edit contacts, but cannot delete them. */
-  ContactsWriter: 'Contacts.Writer',
   /** Full moderation rights on the Board: can manage any Task regardless of who created it. */
   BoardModerator: 'Board.Moderator',
 } as const;

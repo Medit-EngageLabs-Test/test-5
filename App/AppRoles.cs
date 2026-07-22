@@ -15,12 +15,6 @@ namespace App;
 /// </remarks>
 public static class AppRoles
 {
-    /// <summary>Full access to contacts including deletion. Includes all Contacts.Writer permissions.</summary>
-    public const string ContactsAdmin = "Contacts.Admin";
-
-    /// <summary>Can create and edit contacts, but cannot delete them.</summary>
-    public const string ContactsWriter = "Contacts.Writer";
-
     /// <summary>Full moderation rights on the Board: can manage any Task regardless of who created it.</summary>
     public const string BoardModerator = "Board.Moderator";
 }

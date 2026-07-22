@@ -13,21 +13,6 @@ export const routes: Routes = [
         path: 'board',
         loadComponent: () => import('./board/board').then((m) => m.Board),
       },
-      {
-        path: 'contacts',
-        loadComponent: () =>
-          import('./contacts/contact-list/contact-list').then((m) => m.ContactList),
-      },
-      {
-        path: 'contacts/new',
-        loadComponent: () =>
-          import('./contacts/contact-form/contact-form').then((m) => m.ContactForm),
-      },
-      {
-        path: 'contacts/:id/edit',
-        loadComponent: () =>
-          import('./contacts/contact-form/contact-form').then((m) => m.ContactForm),
-      },
     ],
   },
 ];

@@ -1,4 +1,3 @@
-using App.Contacts;
 using Microsoft.EntityFrameworkCore;
 using BoardTask = App.Board.Task;
 using BoardUser = App.Board.User;
@@ -8,9 +7,6 @@ namespace App;
 /// <summary>EF Core database context for this application.</summary>
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
-    /// <summary>Contacts table.</summary>
-    public DbSet<Contact> Contacts => Set<Contact>();
-
     /// <summary>Users table — local mirror of the platform identity (CONTEXT.md "Utente").</summary>
     public DbSet<BoardUser> Users => Set<BoardUser>();
 

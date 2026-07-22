@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
 using App;
 using App.Board;
-using App.Contacts;
 using App.Platform;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Logs;
@@ -72,7 +71,6 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
    .WithTags("Health")
    .AllowAnonymous(); // portal health probe — must stay anonymous (core.md)
 
-app.MapContacts();
 app.MapTasks();
 
 // Serve Angular SPA for all unmatched routes
