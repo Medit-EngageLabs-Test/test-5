@@ -30,6 +30,21 @@ public interface IBoardClient
 
     /// <summary>A Task was deleted (ticket #17).</summary>
     Task TaskDeleted(Guid taskId);
+
+    /// <summary>A Comment was added to a Task's conversation (ticket #18).</summary>
+    Task CommentAdded(Guid taskId, Guid commentId);
+
+    /// <summary>A Comment's body was edited (ticket #19).</summary>
+    Task CommentUpdated(Guid taskId, Guid commentId);
+
+    /// <summary>A Comment was deleted (ticket #19).</summary>
+    Task CommentDeleted(Guid taskId, Guid commentId);
+
+    /// <summary>An Attachment was uploaded to a Task or one of its Comments (tickets #20/#21).</summary>
+    Task AttachmentAdded(Guid taskId, Guid attachmentId);
+
+    /// <summary>An Attachment was removed (ticket #22).</summary>
+    Task AttachmentRemoved(Guid taskId, Guid attachmentId);
 }
 
 /// <summary>

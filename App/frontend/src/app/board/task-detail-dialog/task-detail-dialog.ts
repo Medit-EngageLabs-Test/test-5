@@ -1,4 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { filter, merge } from 'rxjs';
 import {
   AbstractControl,
   FormBuilder,
@@ -23,6 +25,7 @@ import { Task } from '../task.model';
 import { AttachmentsService } from '../attachments';
 import { Attachment } from '../attachment.model';
 import { ConfirmDialogService } from '../../shared/confirm-dialog/confirm-dialog.service';
+import { BoardRealtimeService } from '../../realtime/board-realtime';
 
 /** How long an attachment result snackbar stays on screen (ticket #20). */
 const SNACK_BAR_DURATION_MS = 3000;
@@ -74,6 +77,7 @@ export class TaskDetailDialog {
   private readonly attachmentsService = inject(AttachmentsService);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly realtime = inject(BoardRealtimeService);
   protected readonly data = inject<TaskDetailDialogData>(MAT_DIALOG_DATA);
 
   protected readonly task = this.data.task;
@@ -101,9 +105,29 @@ export class TaskDetailDialog {
   });
   protected editErrorMessage: string | null = null;
 
-  /** Loads the Task's conversation as soon as the panel opens. */
+  /**
+   * Loads the Task's conversation as soon as the panel opens, then keeps it live (F6, ticket
+   * #24): a Comment or Attachment event for this same Task — from another client, or this one's
+   * own hub (re)connection realignment — re-fetches, filtered to this panel's own Task since the
+   * hub broadcasts to every open panel regardless of which Task it shows.
+   */
   constructor() {
     this.refresh();
+
+    merge(
+      this.realtime.commentAdded$,
+      this.realtime.commentUpdated$,
+      this.realtime.commentDeleted$,
+      this.realtime.attachmentAdded$,
+      this.realtime.attachmentRemoved$,
+    )
+      .pipe(
+        filter((event) => event.taskId === this.task.id),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => this.refresh());
+
+    this.realtime.realigned$.pipe(takeUntilDestroyed()).subscribe(() => this.refresh());
   }
 
   /** Italian-locale date+time, matching TaskCard's own due-date formatting approach. */

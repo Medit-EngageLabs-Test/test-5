@@ -20,12 +20,24 @@ export interface TaskRealtimeEvent {
   taskId: string;
 }
 
+/** A Comment-level real-time event (ticket #24): the owning Task's id plus the Comment's own. */
+export interface CommentRealtimeEvent {
+  taskId: string;
+  commentId: string;
+}
+
+/** An Attachment-level real-time event (ticket #24): the owning Task's id plus the Attachment's own. */
+export interface AttachmentRealtimeEvent {
+  taskId: string;
+  attachmentId: string;
+}
+
 /**
  * Connects to the real-time Board hub (F6, ticket #23 — ADR-0001) and republishes its broadcasts
- * as RxJS observables for the Board to subscribe to. Relies entirely on `@microsoft/signalr`'s
- * automatic transport negotiation (WebSocket → Server-Sent Events → long polling) — the ADR
- * forbids forcing a transport, since the portal contract does not document ingress WebSocket
- * support.
+ * as RxJS observables for the Board and the Task detail panel to subscribe to. Relies entirely on
+ * `@microsoft/signalr`'s automatic transport negotiation (WebSocket → Server-Sent Events → long
+ * polling) — the ADR forbids forcing a transport, since the portal contract does not document
+ * ingress WebSocket support.
  */
 @Injectable({ providedIn: 'root' })
 export class BoardRealtimeService {
@@ -38,6 +50,11 @@ export class BoardRealtimeService {
   private readonly taskUpdatedSubject = new Subject<TaskRealtimeEvent>();
   private readonly taskMovedSubject = new Subject<TaskRealtimeEvent>();
   private readonly taskDeletedSubject = new Subject<TaskRealtimeEvent>();
+  private readonly commentAddedSubject = new Subject<CommentRealtimeEvent>();
+  private readonly commentUpdatedSubject = new Subject<CommentRealtimeEvent>();
+  private readonly commentDeletedSubject = new Subject<CommentRealtimeEvent>();
+  private readonly attachmentAddedSubject = new Subject<AttachmentRealtimeEvent>();
+  private readonly attachmentRemovedSubject = new Subject<AttachmentRealtimeEvent>();
   private readonly realignedSubject = new Subject<void>();
 
   /** A Task was created. */
@@ -48,6 +65,16 @@ export class BoardRealtimeService {
   readonly taskMoved$ = this.taskMovedSubject.asObservable();
   /** A Task was deleted. */
   readonly taskDeleted$ = this.taskDeletedSubject.asObservable();
+  /** A Comment was added to a Task's conversation. */
+  readonly commentAdded$ = this.commentAddedSubject.asObservable();
+  /** A Comment's body was edited. */
+  readonly commentUpdated$ = this.commentUpdatedSubject.asObservable();
+  /** A Comment was deleted. */
+  readonly commentDeleted$ = this.commentDeletedSubject.asObservable();
+  /** An Attachment was uploaded to a Task or one of its Comments. */
+  readonly attachmentAdded$ = this.attachmentAddedSubject.asObservable();
+  /** An Attachment was removed. */
+  readonly attachmentRemoved$ = this.attachmentRemovedSubject.asObservable();
   /**
    * Emits once the connection is (re)established — first connect and every automatic
    * reconnect: the signal to re-fetch the whole Board, since a change missed while
@@ -61,6 +88,21 @@ export class BoardRealtimeService {
     this.connection.on('TaskUpdated', (taskId: string) => this.taskUpdatedSubject.next({ taskId }));
     this.connection.on('TaskMoved', (taskId: string) => this.taskMovedSubject.next({ taskId }));
     this.connection.on('TaskDeleted', (taskId: string) => this.taskDeletedSubject.next({ taskId }));
+    this.connection.on('CommentAdded', (taskId: string, commentId: string) =>
+      this.commentAddedSubject.next({ taskId, commentId }),
+    );
+    this.connection.on('CommentUpdated', (taskId: string, commentId: string) =>
+      this.commentUpdatedSubject.next({ taskId, commentId }),
+    );
+    this.connection.on('CommentDeleted', (taskId: string, commentId: string) =>
+      this.commentDeletedSubject.next({ taskId, commentId }),
+    );
+    this.connection.on('AttachmentAdded', (taskId: string, attachmentId: string) =>
+      this.attachmentAddedSubject.next({ taskId, attachmentId }),
+    );
+    this.connection.on('AttachmentRemoved', (taskId: string, attachmentId: string) =>
+      this.attachmentRemovedSubject.next({ taskId, attachmentId }),
+    );
     this.connection.onreconnected(() => this.realignedSubject.next());
 
     void this.connect();

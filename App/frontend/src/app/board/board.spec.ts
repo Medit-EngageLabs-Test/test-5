@@ -4,7 +4,12 @@ import { of, Subject } from 'rxjs';
 import { Board } from './board';
 import { TasksService } from './tasks';
 import { Task, TaskStatus } from './task.model';
-import { BoardRealtimeService, TaskRealtimeEvent } from '../realtime/board-realtime';
+import {
+  BoardRealtimeService,
+  AttachmentRealtimeEvent,
+  CommentRealtimeEvent,
+  TaskRealtimeEvent,
+} from '../realtime/board-realtime';
 
 /**
  * A fake BoardRealtimeService (F6): every stream is its own Subject a test can push into,
@@ -16,6 +21,11 @@ function makeFakeRealtimeService() {
     taskUpdated$: new Subject<TaskRealtimeEvent>(),
     taskMoved$: new Subject<TaskRealtimeEvent>(),
     taskDeleted$: new Subject<TaskRealtimeEvent>(),
+    commentAdded$: new Subject<CommentRealtimeEvent>(),
+    commentUpdated$: new Subject<CommentRealtimeEvent>(),
+    commentDeleted$: new Subject<CommentRealtimeEvent>(),
+    attachmentAdded$: new Subject<AttachmentRealtimeEvent>(),
+    attachmentRemoved$: new Subject<AttachmentRealtimeEvent>(),
     realigned$: new Subject<void>(),
   };
 }
@@ -199,7 +209,7 @@ describe('Board', () => {
     expect(updateStatus).not.toHaveBeenCalled();
   });
 
-  // ── F6 — Aggiornamenti in tempo reale (ticket #23) ─────────────────────────────
+  // ── F6 — Aggiornamenti in tempo reale (ticket #23/#24) ─────────────────────────
 
   it('un evento taskCreated$ da un altro client ricarica la board', async () => {
     const { tasksService, realtimeService } = await setup([]);
@@ -214,8 +224,12 @@ describe('Board', () => {
     ['taskUpdated$', { taskId: 't-1' }] as const,
     ['taskMoved$', { taskId: 't-1' }] as const,
     ['taskDeleted$', { taskId: 't-1' }] as const,
+    ['commentAdded$', { taskId: 't-1', commentId: 'c-1' }] as const,
+    ['commentDeleted$', { taskId: 't-1', commentId: 'c-1' }] as const,
+    ['attachmentAdded$', { taskId: 't-1', attachmentId: 'a-1' }] as const,
+    ['attachmentRemoved$', { taskId: 't-1', attachmentId: 'a-1' }] as const,
     ['realigned$', undefined] as const,
-  ])('un evento %s ricarica la board', async (stream, payload) => {
+  ])('un evento %s ricarica la board (contatori 💬/📎 inclusi)', async (stream, payload) => {
     const { tasksService, realtimeService } = await setup([]);
     expect(tasksService.list).toHaveBeenCalledTimes(1);
 
@@ -224,5 +238,14 @@ describe('Board', () => {
     ).next(payload);
 
     expect(tasksService.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('un evento commentUpdated$ NON ricarica la board — non cambia alcun contatore', async () => {
+    const { tasksService, realtimeService } = await setup([]);
+    expect(tasksService.list).toHaveBeenCalledTimes(1);
+
+    realtimeService.commentUpdated$.next({ taskId: 't-1', commentId: 'c-1' });
+
+    expect(tasksService.list).toHaveBeenCalledTimes(1);
   });
 });

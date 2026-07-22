@@ -100,6 +100,31 @@ describe('BoardRealtimeService', () => {
     ['TaskUpdated', 'taskUpdated$', ['t-1'], { taskId: 't-1' }] as const,
     ['TaskMoved', 'taskMoved$', ['t-1'], { taskId: 't-1' }] as const,
     ['TaskDeleted', 'taskDeleted$', ['t-1'], { taskId: 't-1' }] as const,
+    ['CommentAdded', 'commentAdded$', ['t-1', 'c-1'], { taskId: 't-1', commentId: 'c-1' }] as const,
+    [
+      'CommentUpdated',
+      'commentUpdated$',
+      ['t-1', 'c-1'],
+      { taskId: 't-1', commentId: 'c-1' },
+    ] as const,
+    [
+      'CommentDeleted',
+      'commentDeleted$',
+      ['t-1', 'c-1'],
+      { taskId: 't-1', commentId: 'c-1' },
+    ] as const,
+    [
+      'AttachmentAdded',
+      'attachmentAdded$',
+      ['t-1', 'a-1'],
+      { taskId: 't-1', attachmentId: 'a-1' },
+    ] as const,
+    [
+      'AttachmentRemoved',
+      'attachmentRemoved$',
+      ['t-1', 'a-1'],
+      { taskId: 't-1', attachmentId: 'a-1' },
+    ] as const,
   ])(
     'un evento hub %s emette il payload atteso su %s',
     async (hubEventName, observableName, hubArgs, expectedPayload) => {

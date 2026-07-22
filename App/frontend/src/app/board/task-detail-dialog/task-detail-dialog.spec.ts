@@ -1,12 +1,36 @@
 import { TestBed } from '@angular/core/testing';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
-import { of, throwError } from 'rxjs';
+import { of, throwError, Subject } from 'rxjs';
 import { TaskDetailDialog, TaskDetailDialogData } from './task-detail-dialog';
 import { CommentsService } from '../comments';
 import { AttachmentsService } from '../attachments';
 import { ConfirmDialogService } from '../../shared/confirm-dialog/confirm-dialog.service';
 import { Comment } from '../comment.model';
 import { Task } from '../task.model';
+import {
+  BoardRealtimeService,
+  AttachmentRealtimeEvent,
+  CommentRealtimeEvent,
+} from '../../realtime/board-realtime';
+
+/**
+ * A fake BoardRealtimeService (F6): every stream is its own Subject a test can push into,
+ * instead of the real service's hub connection attempting a network call in a unit test.
+ */
+function makeFakeRealtimeService() {
+  return {
+    taskCreated$: new Subject<{ taskId: string }>(),
+    taskUpdated$: new Subject<{ taskId: string }>(),
+    taskMoved$: new Subject<{ taskId: string }>(),
+    taskDeleted$: new Subject<{ taskId: string }>(),
+    commentAdded$: new Subject<CommentRealtimeEvent>(),
+    commentUpdated$: new Subject<CommentRealtimeEvent>(),
+    commentDeleted$: new Subject<CommentRealtimeEvent>(),
+    attachmentAdded$: new Subject<AttachmentRealtimeEvent>(),
+    attachmentRemoved$: new Subject<AttachmentRealtimeEvent>(),
+    realigned$: new Subject<void>(),
+  };
+}
 
 const task: Task = {
   id: 't-1',
@@ -79,6 +103,7 @@ async function setup(
   const confirmDialogService = {
     confirm: vi.fn().mockResolvedValue(overrides.confirmResult ?? true),
   };
+  const realtimeService = makeFakeRealtimeService();
 
   await TestBed.configureTestingModule({
     imports: [TaskDetailDialog],
@@ -88,6 +113,7 @@ async function setup(
       { provide: CommentsService, useValue: commentsService },
       { provide: AttachmentsService, useValue: attachmentsService },
       { provide: ConfirmDialogService, useValue: confirmDialogService },
+      { provide: BoardRealtimeService, useValue: realtimeService },
     ],
   }).compileComponents();
 
@@ -125,6 +151,7 @@ async function setup(
     commentsService,
     attachmentsService,
     confirmDialogService,
+    realtimeService,
     submitForm,
     setBody,
     submitEditForm,
@@ -460,5 +487,63 @@ describe('TaskDetailDialog', () => {
     await settle();
 
     expect(attachmentsService.remove).not.toHaveBeenCalled();
+  });
+
+  // ── F6 — Aggiornamenti in tempo reale (ticket #24) ─────────────────────────────
+
+  it('un evento commentAdded$ per questa Attività ricarica la conversazione', async () => {
+    const { commentsService, realtimeService, settle } = await setup({ task });
+    expect(commentsService.list).toHaveBeenCalledTimes(1);
+
+    realtimeService.commentAdded$.next({ taskId: task.id, commentId: 'c-9' });
+    await settle();
+
+    expect(commentsService.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('un evento commentAdded$ per un’altra Attività NON ricarica questo pannello', async () => {
+    const { commentsService, realtimeService, settle } = await setup({ task });
+    expect(commentsService.list).toHaveBeenCalledTimes(1);
+
+    realtimeService.commentAdded$.next({ taskId: 'another-task', commentId: 'c-9' });
+    await settle();
+
+    expect(commentsService.list).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['commentUpdated$', { taskId: task.id, commentId: 'c-1' }] as const,
+    ['commentDeleted$', { taskId: task.id, commentId: 'c-1' }] as const,
+    ['attachmentAdded$', { taskId: task.id, attachmentId: 'a-1' }] as const,
+    ['attachmentRemoved$', { taskId: task.id, attachmentId: 'a-1' }] as const,
+  ])(
+    'un evento %s per questa Attività ricarica conversazione e allegati',
+    async (stream, payload) => {
+      const { commentsService, attachmentsService, realtimeService, settle } = await setup({
+        task,
+      });
+      expect(commentsService.list).toHaveBeenCalledTimes(1);
+      expect(attachmentsService.list).toHaveBeenCalledTimes(1);
+
+      (
+        realtimeService[stream as keyof typeof realtimeService] as {
+          next: (value: unknown) => void;
+        }
+      ).next(payload);
+      await settle();
+
+      expect(commentsService.list).toHaveBeenCalledTimes(2);
+      expect(attachmentsService.list).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('un evento realigned$ (riconnessione hub) ricarica il pannello', async () => {
+    const { commentsService, realtimeService, settle } = await setup({ task });
+    expect(commentsService.list).toHaveBeenCalledTimes(1);
+
+    realtimeService.realigned$.next();
+    await settle();
+
+    expect(commentsService.list).toHaveBeenCalledTimes(2);
   });
 });

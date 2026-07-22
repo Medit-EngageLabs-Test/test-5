@@ -62,8 +62,10 @@ export class Board {
 
   /**
    * Loads the Board's Tasks on construction, then keeps it live (F6, ticket #23): every Task
-   * event from another client, and every hub (re)connection (ADR-0001's reconnection
-   * realignment), triggers the same refresh() a local mutation already does.
+   * event from another client, every Comment/Attachment event (their counts show on the card —
+   * ticket #24), and every hub (re)connection (ADR-0001's reconnection realignment) triggers the
+   * same refresh() a local mutation already does. commentUpdated$ is deliberately excluded — an
+   * edited Comment's body does not change its count.
    */
   constructor() {
     this.refresh();
@@ -73,6 +75,10 @@ export class Board {
       this.#realtime.taskUpdated$,
       this.#realtime.taskMoved$,
       this.#realtime.taskDeleted$,
+      this.#realtime.commentAdded$,
+      this.#realtime.commentDeleted$,
+      this.#realtime.attachmentAdded$,
+      this.#realtime.attachmentRemoved$,
       this.#realtime.realigned$,
     )
       .pipe(takeUntilDestroyed())
