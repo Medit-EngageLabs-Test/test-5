@@ -1,0 +1,20 @@
+<mat-card appearance="outlined" class="task-card">
+  <mat-card-content>
+    <div class="task-card-header">
+      <h3 class="task-title">{{ task().title }}</h3>
+      <span class="urgency-badge" [class]="urgencyClass()">{{ urgencyLabel() }}</span>
+    </div>
+
+    @if (dueDateLabel()) {
+      <p class="due-date" [class.overdue]="isOverdue()">
+        <mat-icon aria-hidden="true">event</mat-icon>
+        {{ dueDateLabel() }}
+      </p>
+    }
+
+    <div class="task-card-footer">
+      <span class="counter" aria-label="Commenti">💬 {{ commentCount }}</span>
+      <span class="counter" aria-label="Allegati">📎 {{ attachmentCount }}</span>
+    </div>
+  </mat-card-content>
+</mat-card>

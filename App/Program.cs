@@ -1,5 +1,6 @@
+using System.Text.Json.Serialization;
 using App;
-using App.Contacts;
+using App.Board;
 using App.Platform;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Logs;
@@ -39,6 +40,14 @@ builder.Logging.AddOpenTelemetry(o =>
 // ── API ───────────────────────────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
 
+// Board Status/Urgency serialize as their names ("ToDo", "High"), not numbers: keeps the wire
+// contract exact-identifier and lets the frontend model be a string union instead of magic ints.
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
+// ── Board ─────────────────────────────────────────────────────────────────────
+builder.Services.AddScoped<IUserProvisioningService, UserProvisioningService>();
+
 // ── Authentication (IntelliFlow platform code — do not modify) ────────────────
 // BFF session cookie + OIDC code flow, active when IntelliFlow injects the OIDC
 // environment contract — see .intelliflow/portal-contracts/core.md.
@@ -62,7 +71,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
    .WithTags("Health")
    .AllowAnonymous(); // portal health probe — must stay anonymous (core.md)
 
-app.MapContacts();
+app.MapTasks();
 
 // Serve Angular SPA for all unmatched routes
 app.MapFallbackToFile("index.html");

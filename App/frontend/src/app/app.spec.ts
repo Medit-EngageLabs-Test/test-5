@@ -31,7 +31,7 @@ describe('App', () => {
     const { element } = await setup();
     const toolbar = element.querySelector('mat-toolbar');
     expect(toolbar).not.toBeNull();
-    expect(toolbar?.textContent).toContain('Rubrica Aziendale');
+    expect(toolbar?.textContent).toContain('IntelliFlow Board');
   });
 
   it('rende il router outlet per le pagine', async () => {
