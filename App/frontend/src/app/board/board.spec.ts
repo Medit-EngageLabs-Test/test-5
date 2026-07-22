@@ -101,4 +101,22 @@ describe('Board', () => {
 
     expect(column('Done').querySelectorAll('app-task-card').length).toBe(55);
   });
+
+  it('nella colonna Done sceglie le Attività più recenti, oltre le prime 50', async () => {
+    // 51 Done Tasks, each older than the last (index 0 = oldest); with a cap of 50 the single
+    // oldest one ("Vecchissima") must be the one left out, not whichever the API happened
+    // to list first.
+    const status: TaskStatus = 'Done';
+    const tasks = [
+      makeTask({ id: 'oldest', status, title: 'Vecchissima', createdAt: '2020-01-01T00:00:00Z' }),
+      ...Array.from({ length: 50 }, (_, i) =>
+        makeTask({ id: `recent-${i}`, status, createdAt: `2026-0${1 + (i % 9)}-01T00:00:00Z` }),
+      ),
+    ];
+
+    const { column } = await setup(tasks);
+
+    expect(column('Done').textContent).not.toContain('Vecchissima');
+    expect(column('Done').querySelectorAll('app-task-card').length).toBe(50);
+  });
 });

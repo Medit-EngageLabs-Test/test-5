@@ -40,11 +40,21 @@ export class Board {
 
   /**
    * Tasks for one column, in the API's own order (ADR-0002). The Done column additionally
-   * caps how many are shown — "al più 50 Attività più recenti con mostra altre".
+   * caps *which* Tasks are shown to the N most recently created — "al più 50 Attività più
+   * recenti con mostra altre" — while still rendering that subset in the API's order: recency
+   * picks the subset, ADR-0002 still decides how the subset is arranged on screen.
    */
   protected tasksFor(status: TaskStatus): Task[] {
     const tasksInColumn = this.tasks().filter((task) => task.status === status);
-    return status === 'Done' ? tasksInColumn.slice(0, this.doneVisibleCount()) : tasksInColumn;
+    if (status !== 'Done') return tasksInColumn;
+
+    const mostRecentIds = new Set(
+      [...tasksInColumn]
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, this.doneVisibleCount())
+        .map((task) => task.id),
+    );
+    return tasksInColumn.filter((task) => mostRecentIds.has(task.id));
   }
 
   protected hasMoreDone(): boolean {
