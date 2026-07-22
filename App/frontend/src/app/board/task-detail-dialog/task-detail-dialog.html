@@ -40,12 +40,20 @@
               </span>
               <span class="comment-actions">
                 @if (comment.canEdit) {
-                  <button mat-icon-button aria-label="Modifica messaggio" (click)="startEdit(comment)">
+                  <button
+                    mat-icon-button
+                    aria-label="Modifica messaggio"
+                    (click)="startEdit(comment)"
+                  >
                     <mat-icon aria-hidden="true">edit</mat-icon>
                   </button>
                 }
                 @if (comment.canDelete) {
-                  <button mat-icon-button aria-label="Elimina messaggio" (click)="confirmDelete(comment)">
+                  <button
+                    mat-icon-button
+                    aria-label="Elimina messaggio"
+                    (click)="confirmDelete(comment)"
+                  >
                     <mat-icon aria-hidden="true">delete</mat-icon>
                   </button>
                 }

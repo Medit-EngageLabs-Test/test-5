@@ -65,7 +65,9 @@ async function setup(
     remove: vi.fn().mockReturnValue(of(undefined)),
     ...overrides.commentsServiceOverrides,
   };
-  const confirmDialogService = { confirm: vi.fn().mockResolvedValue(overrides.confirmResult ?? true) };
+  const confirmDialogService = {
+    confirm: vi.fn().mockResolvedValue(overrides.confirmResult ?? true),
+  };
 
   await TestBed.configureTestingModule({
     imports: [TaskDetailDialog],
@@ -165,7 +167,11 @@ describe('TaskDetailDialog', () => {
   it('errore del server: mostra un messaggio di errore', async () => {
     const { submitForm, setBody, element } = await setup(
       { task },
-      { commentsServiceOverrides: { create: vi.fn().mockReturnValue(throwError(() => new Error('boom'))) } },
+      {
+        commentsServiceOverrides: {
+          create: vi.fn().mockReturnValue(throwError(() => new Error('boom'))),
+        },
+      },
     );
 
     setBody('Un messaggio');
@@ -237,10 +243,7 @@ describe('TaskDetailDialog', () => {
   });
 
   it('elimina: annullare la conferma non chiama remove', async () => {
-    const { element, commentsService, settle } = await setup(
-      { task },
-      { confirmResult: false },
-    );
+    const { element, commentsService, settle } = await setup({ task }, { confirmResult: false });
 
     element.querySelector<HTMLButtonElement>('[aria-label="Elimina messaggio"]')!.click();
     await settle();

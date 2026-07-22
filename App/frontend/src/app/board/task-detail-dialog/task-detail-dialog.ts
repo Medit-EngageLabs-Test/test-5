@@ -1,5 +1,10 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors } from '@angular/forms';
+import {
+  AbstractControl,
+  FormBuilder,
+  ReactiveFormsModule,
+  ValidationErrors,
+} from '@angular/forms';
 import {
   MAT_DIALOG_DATA,
   MatDialogActions,
@@ -17,7 +22,9 @@ import { Task } from '../task.model';
 import { ConfirmDialogService } from '../../shared/confirm-dialog/confirm-dialog.service';
 
 /** Data the detail panel is opened with: the Task whose conversation it shows (ticket #18). */
-export type TaskDetailDialogData = { task: Task };
+export interface TaskDetailDialogData {
+  task: Task;
+}
 
 // Same "not just whitespace" rule the Task title validator uses.
 function notBlankValidator(control: AbstractControl<string>): ValidationErrors | null {
@@ -72,6 +79,7 @@ export class TaskDetailDialog {
   });
   protected editErrorMessage: string | null = null;
 
+  /** Loads the Task's conversation as soon as the panel opens. */
   constructor() {
     this.refresh();
   }
