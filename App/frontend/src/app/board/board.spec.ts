@@ -33,6 +33,7 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
     updatedAt: '2026-01-01T00:00:00Z',
     canDelete: true,
     commentCount: 0,
+    attachmentCount: 0,
     ...overrides,
   };
 }

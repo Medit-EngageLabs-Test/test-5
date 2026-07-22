@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using BoardAttachment = App.Board.Attachment;
 using BoardComment = App.Board.Comment;
 using BoardTask = App.Board.Task;
 using BoardUser = App.Board.User;
@@ -16,6 +17,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     /// <summary>Comments table — a Task's conversation (CONTEXT.md "Commento").</summary>
     public DbSet<BoardComment> Comments => Set<BoardComment>();
+
+    /// <summary>Attachments table — files on Tasks and Comments (CONTEXT.md "Allegato").</summary>
+    public DbSet<BoardAttachment> Attachments => Set<BoardAttachment>();
 
     /// <inheritdoc/>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -45,5 +49,36 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .WithMany()
             .HasForeignKey(c => c.AuthorId)
             .IsRequired();
+
+        modelBuilder.Entity<BoardAttachment>()
+            .HasOne(a => a.Task)
+            .WithMany()
+            .HasForeignKey(a => a.TaskId)
+            .IsRequired()
+            // Deleting a Task (F3, ticket #17) cascades its direct Attachments' rows; the S3
+            // objects behind them are not touched by EF — TasksEndpoints.DeleteTask removes those
+            // explicitly, best-effort (ticket #22).
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<BoardAttachment>()
+            .HasOne(a => a.Comment)
+            .WithMany()
+            .HasForeignKey(a => a.CommentId)
+            .IsRequired(false)
+            // Deleting a Comment (F4, ticket #19) cascades its Attachments' rows; same S3 caveat
+            // as above — CommentsEndpoints.DeleteComment removes those explicitly (ticket #21).
+            // Deleting a Task cascades to its Comments too, so an Attachment on a Comment sees two
+            // cascade paths converge on it (Task→Attachment directly, and Task→Comment→Attachment);
+            // PostgreSQL allows this.
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<BoardAttachment>()
+            .HasOne(a => a.UploadedBy)
+            .WithMany()
+            .HasForeignKey(a => a.UploadedById)
+            // Restrict, not Cascade: a User is never deleted by App code, but this avoids ever
+            // wiring a second, unwanted cascade path onto Attachment.
+            .IsRequired()
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

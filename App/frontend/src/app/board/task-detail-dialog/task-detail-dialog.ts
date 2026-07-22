@@ -16,10 +16,23 @@ import { MatButton, MatIconButton } from '@angular/material/button';
 import { MatFormField, MatLabel } from '@angular/material/form-field';
 import { MatInput } from '@angular/material/input';
 import { MatIcon } from '@angular/material/icon';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { CommentsService } from '../comments';
 import { Comment } from '../comment.model';
 import { Task } from '../task.model';
+import { AttachmentsService } from '../attachments';
+import { Attachment } from '../attachment.model';
 import { ConfirmDialogService } from '../../shared/confirm-dialog/confirm-dialog.service';
+
+/** How long an attachment result snackbar stays on screen (ticket #20). */
+const SNACK_BAR_DURATION_MS = 3000;
+
+/**
+ * UI-only hint for the file picker — the server (`AttachmentValidation.AllowedContentTypes`) is
+ * the actual whitelist enforced on upload; this just steers the OS file dialog (ticket #20).
+ */
+const ACCEPTED_FILE_TYPES =
+  'image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.zip';
 
 /** Data the detail panel is opened with: the Task whose conversation it shows (ticket #18). */
 export interface TaskDetailDialogData {
@@ -58,12 +71,21 @@ function notBlankValidator(control: AbstractControl<string>): ValidationErrors |
 })
 export class TaskDetailDialog {
   private readonly commentsService = inject(CommentsService);
+  private readonly attachmentsService = inject(AttachmentsService);
   private readonly confirmDialog = inject(ConfirmDialogService);
+  private readonly snackBar = inject(MatSnackBar);
   protected readonly data = inject<TaskDetailDialogData>(MAT_DIALOG_DATA);
 
   protected readonly task = this.data.task;
   protected readonly comments = signal<Comment[]>([]);
   protected readonly loading = signal(true);
+
+  // Ticket #20: every Attachment of this Task, direct or on one of its Comments (ticket #21) —
+  // taskAttachments()/attachmentsFor(commentId) below partition this same list instead of the
+  // frontend making a second, per-comment request.
+  protected readonly attachments = signal<Attachment[]>([]);
+  protected readonly uploadingTaskAttachment = signal(false);
+  protected readonly acceptedFileTypes = ACCEPTED_FILE_TYPES;
 
   protected readonly form = inject(FormBuilder).nonNullable.group({
     body: ['', notBlankValidator],
@@ -102,6 +124,53 @@ export class TaskDetailDialog {
         this.loading.set(false);
       },
       error: () => this.loading.set(false),
+    });
+    this.attachmentsService.list(this.task.id).subscribe({
+      next: (attachments) => this.attachments.set(attachments),
+      // Best-effort: a listing failure should not block the conversation above from loading.
+      error: () => undefined,
+    });
+  }
+
+  /** This Task's own Attachments — excludes those uploaded to one of its Comments (ticket #21). */
+  protected taskAttachments(): Attachment[] {
+    return this.attachments().filter((attachment) => attachment.commentId === null);
+  }
+
+  /** Human-readable file size, e.g. "128 KB" (ticket #20). */
+  protected formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  /** URL to download an Attachment's content, proxied by the backend (ticket #20). */
+  protected downloadUrl(attachmentId: string): string {
+    return this.attachmentsService.downloadUrl(attachmentId);
+  }
+
+  /**
+   * Uploads the file picked from the Task-level file input (ticket #20). Resets the input's value
+   * afterwards so selecting the very same file again still fires a `change` event.
+   */
+  protected onTaskFileSelected(event: Event, input: HTMLInputElement): void {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    input.value = '';
+    if (!file) return;
+
+    this.uploadingTaskAttachment.set(true);
+    this.attachmentsService.uploadToTask(this.task.id, file).subscribe({
+      next: () => {
+        this.uploadingTaskAttachment.set(false);
+        this.refresh();
+        this.snackBar.open('Allegato caricato.', 'Chiudi', { duration: SNACK_BAR_DURATION_MS });
+      },
+      error: () => {
+        this.uploadingTaskAttachment.set(false);
+        this.snackBar.open('Impossibile caricare l’allegato.', 'Chiudi', {
+          duration: SNACK_BAR_DURATION_MS,
+        });
+      },
     });
   }
 

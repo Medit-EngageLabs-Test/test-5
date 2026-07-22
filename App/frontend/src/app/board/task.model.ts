@@ -28,6 +28,11 @@ export interface Task {
   canDelete: boolean;
   /** How many Comments this Task's conversation has (ticket #18) — the 💬 badge on the card. */
   commentCount: number;
+  /**
+   * How many Attachments this Task has (ticket #20) — the 📎 badge on the card. Includes
+   * Attachments uploaded to any of the Task's Comments too (ticket #21).
+   */
+  attachmentCount: number;
 }
 
 /** Body of `POST /api/tasks` (ticket #14): only `title` is required. */
