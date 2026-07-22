@@ -1,8 +1,11 @@
 using System.Text.Json.Serialization;
+using Amazon.S3;
 using App;
 using App.Board;
 using App.Platform;
+using App.Storage;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -47,6 +50,28 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 // ── Board ─────────────────────────────────────────────────────────────────────
 builder.Services.AddScoped<IUserProvisioningService, UserProvisioningService>();
+
+// ── Storage (S3-compatible bucket, storage capability) ────────────────────────
+// The six Storage__* variables have no fallback (portal contract): a missing one
+// must fail App startup, not silently default to a local endpoint.
+builder.Services.AddOptions<StorageOptions>()
+    .BindConfiguration("Storage")
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddSingleton<IAmazonS3>(serviceProvider =>
+{
+    var options = serviceProvider.GetRequiredService<IOptions<StorageOptions>>().Value;
+    var config = new AmazonS3Config
+    {
+        ServiceURL = options.Endpoint,
+        ForcePathStyle = true, // shared store (MinIO / managed S3-compatible) is addressed path-style
+        AuthenticationRegion = options.Region,
+    };
+    return new AmazonS3Client(options.AccessKey, options.SecretKey, config);
+});
+
+builder.Services.AddSingleton<IObjectStore, S3ObjectStore>();
 
 // ── Authentication (IntelliFlow platform code — do not modify) ────────────────
 // BFF session cookie + OIDC code flow, active when IntelliFlow injects the OIDC
