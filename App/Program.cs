@@ -21,7 +21,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // ── OpenTelemetry ─────────────────────────────────────────────────────────────
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r.AddService(
-        serviceName: builder.Environment.ApplicationName,
+        // OTEL_SERVICE_NAME is injected per-App by IntelliFlow; honour it so each App reports under
+        // its own service.name (ApplicationName is the assembly name "App", identical for every App).
+        serviceName: builder.Configuration["OTEL_SERVICE_NAME"] ?? builder.Environment.ApplicationName,
         serviceVersion: typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.0.0"))
     .WithTracing(t => t
         .AddAspNetCoreInstrumentation()
