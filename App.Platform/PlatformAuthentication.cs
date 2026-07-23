@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -68,6 +69,18 @@ public static class PlatformAuthentication
     /// </exception>
     public static WebApplicationBuilder AddPlatformAuthentication(this WebApplicationBuilder builder)
     {
+        // The App always runs behind IntelliFlow's TLS-terminating reverse proxy (Traefik), which
+        // forwards over plain HTTP internally. Honour X-Forwarded-Proto so Request.Scheme reflects
+        // the original https: without it the OIDC handler builds an http redirect_uri that never
+        // matches the https one the portal registers in Entra, and every sign-in fails.
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedFor;
+            // Only the trusted proxy can reach the App, so accept its forwarded headers.
+            options.KnownIPNetworks.Clear();
+            options.KnownProxies.Clear();
+        });
+
         if (!IsConfigured(builder.Configuration))
         {
             // No OIDC contract (local dev / CI): run without authentication. The auth services are
@@ -177,6 +190,10 @@ public static class PlatformAuthentication
     /// <returns>The same <see cref="WebApplication"/> for chaining.</returns>
     public static WebApplication UsePlatformAuthentication(this WebApplication app)
     {
+        // Must run before any middleware that inspects the request scheme (authentication, cookie
+        // emission) so Request.Scheme is the proxy's original https, not the internal http.
+        app.UseForwardedHeaders();
+
         if (!IsConfigured(app.Configuration))
         {
             _authenticationDisabled(app.Logger, null);
