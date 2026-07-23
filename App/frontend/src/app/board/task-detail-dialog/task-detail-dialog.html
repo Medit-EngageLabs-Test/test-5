@@ -1,0 +1,180 @@
+<h2 mat-dialog-title>{{ task.title }}</h2>
+
+<mat-dialog-content class="task-detail-content">
+  @if (task.description) {
+    <p class="task-description">{{ task.description }}</p>
+  }
+
+  <h3 class="attachments-heading">Allegati</h3>
+
+  <div class="attachments-section">
+    @if (taskAttachments().length === 0) {
+      <p class="empty-state">Nessun allegato.</p>
+    } @else {
+      <ul class="attachment-list">
+        @for (attachment of taskAttachments(); track attachment.id) {
+          <li class="attachment">
+            <span class="attachment-name">{{ attachment.fileName }}</span>
+            <span class="attachment-meta"
+              >{{ attachment.contentType }} · {{ formatSize(attachment.sizeBytes) }}</span
+            >
+            <span class="attachment-actions">
+              <a
+                mat-icon-button
+                [href]="downloadUrl(attachment.id)"
+                [download]="attachment.fileName"
+                aria-label="Scarica allegato"
+              >
+                <mat-icon aria-hidden="true">download</mat-icon>
+              </a>
+              @if (attachment.canDelete) {
+                <button
+                  mat-icon-button
+                  aria-label="Elimina allegato"
+                  (click)="confirmDeleteAttachment(attachment)"
+                >
+                  <mat-icon aria-hidden="true">delete</mat-icon>
+                </button>
+              }
+            </span>
+          </li>
+        }
+      </ul>
+    }
+
+    <input
+      #taskFileInput
+      type="file"
+      hidden
+      [accept]="acceptedFileTypes"
+      (change)="onTaskFileSelected($event, taskFileInput)"
+    />
+    <button
+      type="button"
+      mat-button
+      [disabled]="uploadingTaskAttachment()"
+      (click)="taskFileInput.click()"
+    >
+      <mat-icon aria-hidden="true">attach_file</mat-icon>
+      Allega file
+    </button>
+  </div>
+
+  <h3 class="conversation-heading">Conversazione</h3>
+
+  @if (loading()) {
+    <p class="empty-state">Caricamento…</p>
+  } @else if (comments().length === 0) {
+    <p class="empty-state">Nessun messaggio ancora. Scrivi il primo.</p>
+  } @else {
+    <ul class="comment-list">
+      @for (comment of comments(); track comment.id) {
+        <li class="comment">
+          @if (editingCommentId() === comment.id) {
+            <form class="comment-edit-form" [formGroup]="editForm" (ngSubmit)="saveEdit(comment)">
+              <mat-form-field appearance="outline" class="full-width">
+                <mat-label>Testo del messaggio</mat-label>
+                <textarea matInput formControlName="body" rows="2"></textarea>
+              </mat-form-field>
+              @if (editErrorMessage) {
+                <p class="form-error">{{ editErrorMessage }}</p>
+              }
+              <div class="comment-edit-actions">
+                <button type="button" mat-button (click)="cancelEdit()">Annulla</button>
+                <button type="submit" mat-flat-button>Salva</button>
+              </div>
+            </form>
+          } @else {
+            <div class="comment-header">
+              <span class="comment-author">{{ comment.authorDisplayName }}</span>
+              <span class="comment-date">
+                {{ formatTimestamp(comment.createdAt) }}
+                @if (comment.editedAt) {
+                  <span class="comment-edited">(modificato)</span>
+                }
+              </span>
+              <span class="comment-actions">
+                @if (comment.canEdit) {
+                  <button
+                    mat-icon-button
+                    aria-label="Modifica messaggio"
+                    (click)="startEdit(comment)"
+                  >
+                    <mat-icon aria-hidden="true">edit</mat-icon>
+                  </button>
+                }
+                @if (comment.canDelete) {
+                  <button
+                    mat-icon-button
+                    aria-label="Elimina messaggio"
+                    (click)="confirmDelete(comment)"
+                  >
+                    <mat-icon aria-hidden="true">delete</mat-icon>
+                  </button>
+                }
+              </span>
+            </div>
+            <p class="comment-body">{{ comment.body }}</p>
+            @if (attachmentsFor(comment.id).length > 0) {
+              <ul class="comment-attachment-list">
+                @for (attachment of attachmentsFor(comment.id); track attachment.id) {
+                  <li class="attachment">
+                    <a
+                      class="attachment-name"
+                      [href]="downloadUrl(attachment.id)"
+                      [download]="attachment.fileName"
+                      >{{ attachment.fileName }}</a
+                    >
+                    <span class="attachment-meta">({{ formatSize(attachment.sizeBytes) }})</span>
+                    @if (attachment.canDelete) {
+                      <button
+                        mat-icon-button
+                        class="comment-attach-button"
+                        aria-label="Elimina allegato"
+                        (click)="confirmDeleteAttachment(attachment)"
+                      >
+                        <mat-icon aria-hidden="true">delete</mat-icon>
+                      </button>
+                    }
+                  </li>
+                }
+              </ul>
+            }
+            <input
+              #commentFileInput
+              type="file"
+              hidden
+              [accept]="acceptedFileTypes"
+              (change)="onCommentFileSelected($event, comment, commentFileInput)"
+            />
+            <button
+              type="button"
+              mat-icon-button
+              class="comment-attach-button"
+              aria-label="Allega file al messaggio"
+              (click)="commentFileInput.click()"
+            >
+              <mat-icon aria-hidden="true">attach_file</mat-icon>
+            </button>
+          }
+        </li>
+      }
+    </ul>
+  }
+</mat-dialog-content>
+
+<form class="send-box" [formGroup]="form" (ngSubmit)="submit()">
+  <mat-form-field appearance="outline" class="full-width">
+    <mat-label>Scrivi un messaggio</mat-label>
+    <textarea matInput formControlName="body" rows="2"></textarea>
+  </mat-form-field>
+
+  @if (errorMessage) {
+    <p class="form-error">{{ errorMessage }}</p>
+  }
+
+  <mat-dialog-actions align="end">
+    <button type="button" mat-button mat-dialog-close>Chiudi</button>
+    <button type="submit" mat-flat-button [disabled]="sending">Invia</button>
+  </mat-dialog-actions>
+</form>

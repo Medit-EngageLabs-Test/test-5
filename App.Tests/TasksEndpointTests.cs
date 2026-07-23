@@ -1,0 +1,361 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using BoardTask = App.Board.Task;
+using BoardUser = App.Board.User;
+
+namespace App.Tests;
+
+/// <summary>
+/// Covers <c>GET /api/tasks</c>: empty list, and the ADR-0002 ordering (Urgency High→Low, then
+/// DueDate ascending with no-due-date last, then CreatedAt descending) seeded directly through
+/// <see cref="AppDbContext"/> — ticket #9 ships no write endpoint yet.
+/// </summary>
+public class TasksEndpointTests(RoleAuthenticatedAppFactory factory) : IClassFixture<RoleAuthenticatedAppFactory>
+{
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+    // Requires just an authenticated session (no role) — any declared role exercises that,
+    // per iam.md's "only declared roles" rule for the test/dev-bypass mechanism.
+    private HttpClient CreateAuthenticatedClient()
+    {
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(RoleAuthenticatedAppFactory.RolesHeader, AppRoles.BoardModerator);
+        return client;
+    }
+
+    // Authenticated but with none of the roles declared in roles.json — used to exercise the
+    // "authenticated, not a moderator" branch of DeleteTask's imperative check (ticket #17).
+    // The header is present (so the test scheme authenticates the request) but empty (no role
+    // claims added).
+    private HttpClient CreateAuthenticatedClientWithoutRoles()
+    {
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(RoleAuthenticatedAppFactory.RolesHeader, string.Empty);
+        return client;
+    }
+
+    private async Task<Guid> SeedUserAsync()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var user = new BoardUser { Oid = $"seed-{Guid.NewGuid()}" };
+        db.Add(user);
+        await db.SaveChangesAsync();
+        return user.Id;
+    }
+
+    private async Task<Guid> SeedTaskAsync(
+        Guid createdById,
+        string title,
+        App.Board.Urgency urgency,
+        DateOnly? dueDate,
+        DateTime createdAt)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var task = new BoardTask
+        {
+            Title = title,
+            Urgency = urgency,
+            DueDate = dueDate,
+            CreatedById = createdById,
+            CreatedAt = createdAt,
+        };
+        db.Add(task);
+        await db.SaveChangesAsync();
+        return task.Id;
+    }
+
+    [Fact]
+    public async Task ListTasks_ReturnsEmptyArray_WhenNoTasksExist()
+    {
+        // Isolated Contacts/roles.json-style RoleAuthenticatedAppFactory instance for this class —
+        // no seeding happened yet on this instance's connection scope by the time this runs first.
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.GetAsync("/api/tasks");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var tasks = await response.Content.ReadFromJsonAsync<JsonElement[]>();
+        Assert.NotNull(tasks);
+    }
+
+    // "Requires only authentication" is exercised where the fallback policy actually applies:
+    // AuthenticationTests.GetTasks_WithoutSession_Returns401 (OIDC configured, production-like)
+    // and OpenModeAuthenticationTests.GetTasks_InOpenMode_Returns200WithoutASession (no OIDC).
+    // RoleAuthenticatedAppFactory boots in open mode too, so an anonymous request here would
+    // also return 200 — asserting 401 against it would be testing the wrong factory.
+
+    [Fact]
+    public async Task ListTasks_OrdersByUrgencyThenDueDateThenCreatedAt_PerAdr0002()
+    {
+        var userId = await SeedUserAsync();
+        var now = DateTime.UtcNow;
+        var today = DateOnly.FromDateTime(now);
+
+        // Same Urgency (High), different DueDate: earlier due date first, no-due-date last.
+        var highNoDueDate = await SeedTaskAsync(userId, "Alta senza scadenza", App.Board.Urgency.High, null, now);
+        var highLaterDue = await SeedTaskAsync(userId, "Alta scadenza lontana", App.Board.Urgency.High, today.AddDays(10), now);
+        var highEarlierDue = await SeedTaskAsync(userId, "Alta scadenza vicina", App.Board.Urgency.High, today.AddDays(1), now);
+
+        // Same Urgency+DueDate as highEarlierDue: CreatedAt descending (most recent first) is
+        // the final tiebreaker — seeded explicitly, not relying on wall-clock insertion order.
+        var highEarlierDueOlder = await SeedTaskAsync(
+            userId, "Alta scadenza vicina più vecchia", App.Board.Urgency.High, today.AddDays(1), now.AddMinutes(-10));
+
+        // Lower Urgency must sort after every High task regardless of due date.
+        var mediumUrgentDue = await SeedTaskAsync(userId, "Media", App.Board.Urgency.Medium, today, now);
+        var lowUrgentDue = await SeedTaskAsync(userId, "Bassa", App.Board.Urgency.Low, today, now);
+
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.GetAsync("/api/tasks");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var tasks = await response.Content.ReadFromJsonAsync<JsonElement[]>(JsonOptions);
+        Assert.NotNull(tasks);
+        var returnedIds = tasks!.Select(t => t.GetProperty("id").GetGuid()).ToList();
+
+        // Other test methods in this class share the same RoleAuthenticatedAppFactory (and
+        // therefore the same testdb): filter the full response down to this test's own seeded
+        // ids, preserving the API's order, so unrelated rows never affect the assertion.
+        var expectedOrder = new[]
+            { highEarlierDue, highEarlierDueOlder, highLaterDue, highNoDueDate, mediumUrgentDue, lowUrgentDue };
+        var actualOrder = returnedIds.Where(expectedOrder.Contains).ToList();
+
+        Assert.Equal(expectedOrder, actualOrder);
+    }
+
+    [Fact]
+    public async Task ListTasks_SerializesStatusAndUrgencyAsNames()
+    {
+        // Unique per run — on the shared, persistent testdb (not dropped between fast-gate
+        // runs) a fixed title would match more than one row on a second run, breaking
+        // Assert.Single. Mirrors how ListTasks_OrdersBy... isolates itself by seeded id.
+        var title = $"Nomi enum {Guid.NewGuid()}";
+        var userId = await SeedUserAsync();
+        await SeedTaskAsync(userId, title, App.Board.Urgency.Medium, null, DateTime.UtcNow);
+
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.GetAsync("/api/tasks");
+
+        var tasks = await response.Content.ReadFromJsonAsync<JsonElement[]>(JsonOptions);
+        var task = Assert.Single(tasks!, t => t.GetProperty("title").GetString() == title);
+        Assert.Equal("ToDo", task.GetProperty("status").GetString());
+        Assert.Equal("Medium", task.GetProperty("urgency").GetString());
+    }
+
+    [Fact]
+    public async Task ListTasks_CanDeleteIsTrue_ForModerator_EvenWhenNotCreator()
+    {
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(
+            creatorId, $"Visibile al Moderatore {Guid.NewGuid()}", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        var client = CreateAuthenticatedClient(); // carries AppRoles.BoardModerator
+
+        var response = await client.GetAsync("/api/tasks");
+
+        var tasks = await response.Content.ReadFromJsonAsync<JsonElement[]>(JsonOptions);
+        var task = Assert.Single(tasks!, t => t.GetProperty("id").GetGuid() == taskId);
+        Assert.True(task.GetProperty("canDelete").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ListTasks_CanDeleteIsFalse_ForOtherAuthenticatedUser()
+    {
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(
+            creatorId, $"Non visibile ad altri {Guid.NewGuid()}", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        var client = CreateAuthenticatedClientWithoutRoles();
+
+        var response = await client.GetAsync("/api/tasks");
+
+        var tasks = await response.Content.ReadFromJsonAsync<JsonElement[]>(JsonOptions);
+        var task = Assert.Single(tasks!, t => t.GetProperty("id").GetGuid() == taskId);
+        Assert.False(task.GetProperty("canDelete").GetBoolean());
+    }
+
+    // ── #14 — Creare un'Attività ───────────────────────────────────────────────
+
+    [Fact]
+    public async Task CreateTask_AttributesCurrentUserAndAppliesDefaults()
+    {
+        var client = CreateAuthenticatedClient();
+        var title = $"Nuova attività {Guid.NewGuid()}";
+
+        var response = await client.PostAsJsonAsync("/api/tasks", new { title });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var task = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        Assert.Equal(title, task.GetProperty("title").GetString());
+        Assert.Equal("ToDo", task.GetProperty("status").GetString());
+        Assert.Equal("Medium", task.GetProperty("urgency").GetString());
+        Assert.NotEqual(Guid.Empty, task.GetProperty("createdById").GetGuid());
+        Assert.True(task.GetProperty("canDelete").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task CreateTask_WithBlankTitle_Returns400(string blankTitle)
+    {
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.PostAsJsonAsync("/api/tasks", new { title = blankTitle });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    // ── #15 — Modificare un'Attività ────────────────────────────────────────────
+
+    [Fact]
+    public async Task UpdateTask_ReplacesFieldsAndBumpsUpdatedAt()
+    {
+        var userId = await SeedUserAsync();
+        var createdAt = DateTime.UtcNow.AddDays(-1);
+        var taskId = await SeedTaskAsync(userId, "Titolo originale", App.Board.Urgency.Low, null, createdAt);
+        var client = CreateAuthenticatedClient();
+        var newTitle = $"Titolo aggiornato {Guid.NewGuid()}";
+
+        var response = await client.PutAsJsonAsync($"/api/tasks/{taskId}", new
+        {
+            title = newTitle,
+            description = "Nuova descrizione",
+            urgency = "High",
+            dueDate = "2026-12-31",
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var task = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        Assert.Equal(newTitle, task.GetProperty("title").GetString());
+        Assert.Equal("Nuova descrizione", task.GetProperty("description").GetString());
+        Assert.Equal("High", task.GetProperty("urgency").GetString());
+        Assert.Equal("2026-12-31", task.GetProperty("dueDate").GetString());
+        var updatedAt = task.GetProperty("updatedAt").GetDateTime();
+        Assert.True(updatedAt > createdAt);
+    }
+
+    [Fact]
+    public async Task UpdateTask_WithBlankTitle_Returns400()
+    {
+        var userId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(userId, "Titolo", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.PutAsJsonAsync($"/api/tasks/{taskId}", new
+        {
+            title = "   ",
+            description = (string?)null,
+            urgency = "Medium",
+            dueDate = (string?)null,
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateTask_UnknownId_Returns404()
+    {
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.PutAsJsonAsync($"/api/tasks/{Guid.NewGuid()}", new
+        {
+            title = "Non esiste",
+            description = (string?)null,
+            urgency = "Medium",
+            dueDate = (string?)null,
+        });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    // ── #16 — Spostare tra colonne ───────────────────────────────────────────────
+
+    [Fact]
+    public async Task UpdateTaskStatus_MovesTaskToTargetColumn()
+    {
+        var userId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(userId, "Da spostare", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.PatchAsJsonAsync($"/api/tasks/{taskId}/status", new { status = "Doing" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var task = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        Assert.Equal("Doing", task.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task UpdateTaskStatus_UnknownId_Returns404()
+    {
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.PatchAsJsonAsync($"/api/tasks/{Guid.NewGuid()}/status", new { status = "Done" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    // ── #17 — Eliminare (creatore o Moderatore) ─────────────────────────────────
+
+    [Fact]
+    public async Task DeleteTask_ByItsCreator_Returns204()
+    {
+        // The test principal carries no oid/sub, so every non-moderator caller resolves to the
+        // same open-mode synthetic User (UserProvisioningService.LocalDevOid): creating the Task
+        // through the API — instead of seeding it with a random creator — is what makes THIS
+        // caller its creator, exercising the isCreator branch and not the isModerator one.
+        var createClient = CreateAuthenticatedClientWithoutRoles();
+        var createResponse = await createClient.PostAsJsonAsync(
+            "/api/tasks", new { title = $"Mia attività {Guid.NewGuid()}" });
+        var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        var taskId = created.GetProperty("id").GetGuid();
+
+        var deleteClient = CreateAuthenticatedClientWithoutRoles();
+        var response = await deleteClient.DeleteAsync($"/api/tasks/{taskId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteTask_ByModerator_Returns204_EvenWhenNotCreator()
+    {
+        // A fresh, distinct creator (never resolved by any test principal here) isolates the
+        // moderator branch: this caller can only succeed via the BoardModerator role, not via
+        // CreatedById — otherwise this test would pass for the wrong reason.
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(
+            creatorId, $"Di un altro Utente {Guid.NewGuid()}", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        var client = CreateAuthenticatedClient(); // carries AppRoles.BoardModerator
+
+        var response = await client.DeleteAsync($"/api/tasks/{taskId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteTask_ByOtherAuthenticatedUser_Returns403()
+    {
+        var creatorId = await SeedUserAsync();
+        var taskId = await SeedTaskAsync(
+            creatorId, $"Non eliminabile da altri {Guid.NewGuid()}", App.Board.Urgency.Medium, null, DateTime.UtcNow);
+        // Resolves to the synthetic User, not creatorId, and carries no BoardModerator role.
+        var client = CreateAuthenticatedClientWithoutRoles();
+
+        var response = await client.DeleteAsync($"/api/tasks/{taskId}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteTask_UnknownId_Returns404()
+    {
+        var client = CreateAuthenticatedClient();
+
+        var response = await client.DeleteAsync($"/api/tasks/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+}

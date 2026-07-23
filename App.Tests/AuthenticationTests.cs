@@ -67,11 +67,14 @@ public class AuthenticationTests(AuthenticatedAppFactory factory) : IClassFixtur
     }
 
     [Fact]
-    public async Task ApiRequest_WithoutSession_Returns401()
+    public async Task GetTasks_WithoutSession_Returns401()
     {
+        // GET /api/tasks requires only authentication (no role, ticket #9): no explicit
+        // RequireAuthorization — the platform's FallbackPolicy already gates it in production.
+        // The open-mode counterpart (200 without a session) lives in OpenModeAuthenticationTests.
         var client = CreateClient();
 
-        var response = await client.GetAsync("/api/contacts");
+        var response = await client.GetAsync("/api/tasks");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -85,7 +88,7 @@ public class AuthenticationTests(AuthenticatedAppFactory factory) : IClassFixtur
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", "eyJhbGciOiJub25lIn0.eyJzdWIiOiJhdHRhY2tlciJ9.");
 
-        var response = await client.GetAsync("/api/contacts");
+        var response = await client.GetAsync("/api/tasks");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }

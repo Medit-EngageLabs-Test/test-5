@@ -1,8 +1,12 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { AppRoles } from './app-roles.generated';
+import { AppRole, AppRoles } from './app-roles.generated';
 import { UserStore } from './user-store';
+
+// A role not declared in roles.json — only used to exercise the "user does not hold
+// this role" branch of hasRole() alongside the one real generated constant.
+const undeclaredRole = 'Undeclared.Role' as AppRole;
 
 function setup() {
   TestBed.configureTestingModule({
@@ -85,10 +89,10 @@ describe('UserStore', () => {
     store.loadCurrentUser();
     http
       .expectOne('/api/auth/me')
-      .flush({ oid: 'u1', displayName: null, email: null, roles: [AppRoles.ContactsWriter] });
+      .flush({ oid: 'u1', displayName: null, email: null, roles: [AppRoles.BoardModerator] });
 
-    expect(store.hasRole(AppRoles.ContactsWriter)).toBe(true);
-    expect(store.hasRole(AppRoles.ContactsAdmin)).toBe(false);
+    expect(store.hasRole(AppRoles.BoardModerator)).toBe(true);
+    expect(store.hasRole(undeclaredRole)).toBe(false);
 
     http.verify();
   });
@@ -101,8 +105,8 @@ describe('UserStore', () => {
       .expectOne('/api/auth/me')
       .error(new ProgressEvent('error'), { status: 200, statusText: 'OK' });
 
-    expect(store.hasRole(AppRoles.ContactsAdmin)).toBe(true);
-    expect(store.hasRole(AppRoles.ContactsWriter)).toBe(true);
+    expect(store.hasRole(AppRoles.BoardModerator)).toBe(true);
+    expect(store.hasRole(undeclaredRole)).toBe(true);
 
     http.verify();
   });

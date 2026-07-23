@@ -2,7 +2,8 @@
   "/api": {
     "target": "http://localhost:5281",
     "secure": false,
-    "changeOrigin": true
+    "changeOrigin": true,
+    "ws": true
   },
   "/health": {
     "target": "http://localhost:5281",

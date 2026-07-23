@@ -99,12 +99,67 @@ L'identificatore URL-safe di questa App, assegnato da IntelliFlow alla creazione
 
 ---
 
+## Board
+
+L'unica lavagna condivisa dell'App: una sola, fissa, vista da tutti gli utenti. Non è un'entità con proprietario o membri — è il contenitore concettuale delle Attività, reso a schermo come tre colonne (una per Stato).
+
+---
+
+## Utente (User)
+
+Una persona che accede all'App, identificata da IntelliFlow (Entra) tramite `oid`. È persistita nel database dell'App come entità propria: è l'autore dei Commenti e di chi carica gli Allegati. L'anagrafica locale rispecchia l'identità della piattaforma (`oid`, display name, email) — non la possiede. In sviluppo senza autenticazione (open mode) le scritture sono attribuite a un Utente sintetico "Sviluppo locale".
+
+---
+
+## Attività (Task)
+
+L'unità di lavoro che vive sulla Board: ciò che un Utente crea, sposta tra le colonne e su cui si conversa. Ha uno Stato, un livello di urgenza e, opzionalmente, una scadenza.
+
+---
+
+## Stato (Status)
+
+La colonna in cui si trova un'Attività. Tre valori fissi: **To Do**, **Doing**, **Done**. Non esiste un'entità "Colonna": la colonna è la resa a schermo di questo campo. Spostare un'Attività via drag&drop tra colonne significa cambiarne lo Stato.
+
+---
+
+## Urgenza (Urgency)
+
+Il livello di priorità di un'Attività: **Bassa / Media / Alta** (default Media). È insieme un indicatore visivo (badge sulla card) e il criterio primario con cui le card sono ordinate dentro una colonna.
+
+---
+
+## Scadenza (DueDate)
+
+La data entro cui un'Attività dovrebbe essere completata. È opzionale.
+
+---
+
+## Commento (Comment)
+
+Un messaggio scritto da un Utente nella conversazione di un'Attività. I Commenti di un'Attività formano una lista piatta in ordine cronologico. L'autore può modificare ed eliminare i propri Commenti.
+
+---
+
+## Allegato (Attachment)
+
+Un file caricato da un Utente e conservato nel bucket S3 dedicato all'App; i suoi metadati (nome, tipo, dimensione, chiave storage, uploader) vivono nel database. Un Allegato appartiene sempre a un'Attività e, opzionalmente, a un singolo Commento di quella Attività.
+
+---
+
 ## Glossario italiano → inglese
 
 Il Creator descrive l'App in italiano; identificatori, commenti e XML doc nel codice sono sempre in inglese (vedi lo standard di lingua in `AGENTS.md`). Perché la stessa idea non prenda rese diverse in punti diversi del codice — il caso concreto che ha motivato questa sezione: `StorageKey` in un punto, `CaricatoOid` in un altro, per lo stesso concetto — ogni termine di dominio va risolto **una sola volta** e registrato qui prima di riusarlo nel codice.
 
 | Termine italiano | Identificatore inglese |
 |---|---|
-| _(nessun termine ancora registrato — la tabella si popola durante lo sviluppo)_ | |
+| Board | Board |
+| Utente | User |
+| Attività | Task |
+| Stato | Status |
+| Urgenza | Urgency |
+| Scadenza | DueDate |
+| Commento | Comment |
+| Allegato | Attachment |
 
 Aggiungi una riga per ogni nuovo termine quando lo risolvi con il Creator o quando emerge da una conversazione. Prima di introdurre un nuovo identificatore nel codice, controlla se il termine italiano corrispondente è già qui.
